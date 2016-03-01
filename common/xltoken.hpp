@@ -88,9 +88,9 @@ struct Token
 		
 		opNest			= 0x50,
 		opPointer  		= 0x51,
-		opDot3	    	= 0x52,
-		opDot2	    	= 0x53,
-		opIn	    	= 0x54,
+		opDot3	    		= 0x52,
+		opDot2	    		= 0x53,
+		opIn	    		= 0x54,
 		opMref			= 0x55,
 		opMpointer 		= 0x56,
 		opVarrow   		= 0x57,
@@ -120,7 +120,7 @@ struct Token
 		opPercent  		= opMod,
 		opDot			= opRef,
 		opPeriod		= opRef,
-		opArrow	    	= opPointer,
+		opArrow	    		= opPointer,
 		opPath			= opDiv		
 	};
 	
@@ -151,11 +151,11 @@ struct Token
 	CharType* 	strValue;
 	
 	//method
-	bool IsOperate(Operate op)	{	return kind==kOperate &&  opVal == op;	}
+	bool IsOperate(Operate op)		{	return kind==kOperate &&  opVal == op;	}
 	bool IsIdent()				{	return kind==kIdent;	}
 	bool IsString()				{	return kind==kString;	}
 	bool IsBool()				{	return kind==kBool;		}
-	bool IsChar(CharType ch)	{	return kind==kChar && strVal[0] == ch;	}
+	bool IsChar(CharType ch)		{	return kind==kChar && strVal[0] == ch;	}
 	bool IsChar()				{	return kind==kChar;	}
 	bool IsInt()				{	return kind==kInt;	}
 	bool IsDouble()				{	return kind==kDouble || kind ==kFloat;	}
@@ -164,7 +164,7 @@ struct Token
 	bool IsLiteral()			{	return kind==kString|| kind==kBool|| IsNumber();	}
 	bool IsEof()				{	return kind ==kEof;	}
 	bool IsComment()			{	return kind==kComment||kind==kBlockComment;	}
-	bool IsLn()					{	return kind==kLn;	}
+	bool IsLn()				{	return kind==kLn;	}
 	bool IsBlank()				{	return kind==kBlank;	}
 
 	bool IsIdent(CharType* Ident)
