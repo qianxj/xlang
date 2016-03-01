@@ -75,31 +75,31 @@ struct Token
 		opLparen		= 0x41,
 		opRbrace		= 0x42,
 		opLbrace		= 0x43,
-		opRbrackets	= 0x44,
-		opLbrackets	= 0x45,
-		opComma		= 0x46,
-		opSemicolon	= 0x47,
+		opRbrackets		= 0x44,
+		opLbrackets		= 0x45,
+		opComma			= 0x46,
+		opSemicolon		= 0x47,
 		opSign		 	= 0x48,
-		opDollar		 	= 0x49,
+		opDollar		= 0x49,
 		
 		opApos			= 0x4A,
 		opPath2			= 0x4B,
-		opSizeof			= 0x4C,
+		opSizeof		= 0x4C,
 		
 		opNest			= 0x50,
 		opPointer  		= 0x51,
 		opDot3	    	= 0x52,
 		opDot2	    	= 0x53,
-		opIn	    		= 0x54,
+		opIn	    	= 0x54,
 		opMref			= 0x55,
-		opMpointer 	= 0x56,
+		opMpointer 		= 0x56,
 		opVarrow   		= 0x57,
-		opBecomes 	= 0x58,
+		opBecomes 		= 0x58,
 		opQuery			= 0x59,
 		opColon			= 0x5A,
 		opHash			= 0x5B,
-		opRef				= 0x5C,
-		opBackslash	= 0x5D,
+		opRef			= 0x5C,
+		opBackslash		= 0x5D,
 		
 		//math asn operator
 		opAddAsn		= 0x71,
@@ -119,7 +119,7 @@ struct Token
 		opExclam   		= opNot,
 		opPercent  		= opMod,
 		opDot			= opRef,
-		opPeriod			= opRef,
+		opPeriod		= opRef,
 		opArrow	    	= opPointer,
 		opPath			= opDiv		
 	};
@@ -141,9 +141,9 @@ struct Token
 	
 	union  
 	{
-		int 			intVal;
+		int 		intVal;
 		double 		doubleVal;
-		bool 			boolVal;
+		bool 		boolVal;
 		CharType	charVal;
 		Operate		opVal;
 	};
@@ -151,11 +151,11 @@ struct Token
 	CharType* 	strValue;
 	
 	//method
-	bool IsOperate(Operate op)		{	return kind==kOperate &&  opVal == op;	}
+	bool IsOperate(Operate op)	{	return kind==kOperate &&  opVal == op;	}
 	bool IsIdent()				{	return kind==kIdent;	}
 	bool IsString()				{	return kind==kString;	}
 	bool IsBool()				{	return kind==kBool;		}
-	bool IsChar(CharType ch)		{	return kind==kChar && strVal[0] == ch;	}
+	bool IsChar(CharType ch)	{	return kind==kChar && strVal[0] == ch;	}
 	bool IsChar()				{	return kind==kChar;	}
 	bool IsInt()				{	return kind==kInt;	}
 	bool IsDouble()				{	return kind==kDouble || kind ==kFloat;	}
@@ -164,7 +164,7 @@ struct Token
 	bool IsLiteral()			{	return kind==kString|| kind==kBool|| IsNumber();	}
 	bool IsEof()				{	return kind ==kEof;	}
 	bool IsComment()			{	return kind==kComment||kind==kBlockComment;	}
-	bool IsLn()				{	return kind==kLn;	}
+	bool IsLn()					{	return kind==kLn;	}
 	bool IsBlank()				{	return kind==kBlank;	}
 
 	bool IsIdent(CharType* Ident)
