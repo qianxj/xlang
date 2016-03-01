@@ -40,30 +40,30 @@ struct Token
 		opAdd			= 0x21,
 		opSub			= 0x22,
 		opMul			= 0x23,
-		opDiv				= 0x24,
+		opDiv			= 0x24,
 		opMod			= 0x25,
 		
 		//unary
 		opAsn			= 0x26,
-		opInc				= 0x27,
+		opInc			= 0x27,
 		opDec			= 0x28,
 		
 		//bit operator
-		opShl				= 0x2A,
+		opShl			= 0x2A,
 		opShr			= 0x2B,
 		opBand			= 0x2C,
-		opBor				= 0x2D,
+		opBor			= 0x2D,
 		opXor			= 0x2E,
 		opBnot			= 0x2F,
 		
 		//logic operator
-		opOr				= 0x30,
+		opOr			= 0x30,
 		opAnd			= 0x31,
-		opGt				= 0x32,
+		opGt			= 0x32,
 		opGte			= 0x33,
-		opLt				= 0x34,
-		opLte				= 0x35,
-		opEq				= 0x36,
+		opLt			= 0x34,
+		opLte			= 0x35,
+		opEq			= 0x36,
 		opNeq			= 0x37,
 		opNot			= 0x38,
 		
@@ -152,20 +152,20 @@ struct Token
 	
 	//method
 	bool IsOperate(Operate op)		{	return kind==kOperate &&  opVal == op;	}
-	bool IsIdent()							{	return kind==kIdent;	}
-	bool IsString()						{	return kind==kString;	}
-	bool IsBool()							{	return kind==kBool;		}
-	bool IsChar(CharType ch)			{	return kind==kChar && strVal[0] == ch;	}
-	bool IsChar()							{	return kind==kChar;	}
-	bool IsInt()							{	return kind==kInt;	}
-	bool IsDouble()						{	return kind==kDouble || kind ==kFloat;	}
-	bool IsFloat()							{	return kFloat;	}
-	bool IsNumber()						{	return kind==kDouble|| kind==kFloat || kind==kChar || kind==kInt || kind==kHex; }
-	bool IsLiteral()						{	return kind==kString|| kind==kBool|| IsNumber();	}
-	bool IsEof()							{	return kind ==kEof;	}
-	bool IsComment()					{	return kind==kComment||kind==kBlockComment;	}
-	bool IsLn()								{	return kind==kLn;	}
-	bool IsBlank()							{	return kind==kBlank;	}
+	bool IsIdent()				{	return kind==kIdent;	}
+	bool IsString()				{	return kind==kString;	}
+	bool IsBool()				{	return kind==kBool;		}
+	bool IsChar(CharType ch)		{	return kind==kChar && strVal[0] == ch;	}
+	bool IsChar()				{	return kind==kChar;	}
+	bool IsInt()				{	return kind==kInt;	}
+	bool IsDouble()				{	return kind==kDouble || kind ==kFloat;	}
+	bool IsFloat()				{	return kFloat;	}
+	bool IsNumber()				{	return kind==kDouble|| kind==kFloat || kind==kChar || kind==kInt || kind==kHex; }
+	bool IsLiteral()			{	return kind==kString|| kind==kBool|| IsNumber();	}
+	bool IsEof()				{	return kind ==kEof;	}
+	bool IsComment()			{	return kind==kComment||kind==kBlockComment;	}
+	bool IsLn()				{	return kind==kLn;	}
+	bool IsBlank()				{	return kind==kBlank;	}
 
 	bool IsIdent(CharType* Ident)
 	{
