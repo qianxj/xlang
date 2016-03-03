@@ -3,10 +3,12 @@
 *.lo
 *.o
 *.obj
+*.pdb
 
 # Precompiled Headers
 *.gch
 *.pch
+
 
 # Compiled Dynamic libraries
 *.so
