@@ -1,4 +1,4 @@
 #include "xltoken.hpp"
 
-using namespace XL;
+using namespace xl;
 
