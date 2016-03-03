@@ -15,7 +15,7 @@ struct Number;
 template <class CharType> 
 	OperateTerm<CharType>& OpTerm(CharType ch, util::token::Operate op);
 template<class CharType> bool  isLetter(CharType ch) ;
-template<class CharType> bool isDigist(CharType ch);
+template<class CharType> bool isDigit(CharType ch);
 template<class CharType> bool isBlankLetter(CharType ch);
 template<class CharType> bool isBoolConst();
 template<class CharType> int eatNumber(const CharType * src, Number &val);
@@ -105,7 +105,7 @@ struct Number
 template<class CharType> bool  isLetter(CharType ch) 
 	{return (ch>='a' && ch<='z')||(ch>='A' && ch<='Z') || ch>255;}
 
-template<class CharType> bool isDigist(CharType ch)
+template<class CharType> bool isDigit(CharType ch)
 	{ return ch>='0' && ch<='9'; }
 	
 template<class CharType> bool isBlankLetter(CharType ch)
@@ -161,6 +161,8 @@ template<class CharType> int eatNumber(const CharType * src, Number &val)
 	int len = eatHex(src,val.intPart);
 	if(len > 0) return len;
 	
+	if(!isDigit(src[cc])) return 0;
+	
 	//process int part
 	CharType ch = src[cc++];
 	while(ch>='0' && ch<='9')
@@ -182,7 +184,7 @@ template<class CharType> int eatNumber(const CharType * src, Number &val)
 	ch = src[cc++];
 	
 	val.kind = Number::kDouble;
-	while (isDigist(ch))
+	while (isDigit(ch))
 	{
 		e= e - 1;
 		val.mantissa = val.mantissa*10 + ch - '0';
@@ -201,7 +203,7 @@ template<class CharType> int eatNumber(const CharType * src, Number &val)
 		}
 		//if(ch <'0'|| ch >'9')
 		//	error(error::err_doublescale);
-		while (isDigist(ch))
+		while (isDigit(ch))
 		{
 			s = s*10 + ch -'0';
 			ch = src[cc++];
@@ -215,7 +217,9 @@ template<class CharType> int eatNumber(const CharType * src, Number &val)
 
 template<class CharType> int eatString(const CharType* src)
 {
-	int cc=-1;
+	int cc=0;
+	if(src[0]!='\'' && src[0]!='\"') return 0;
+	
 	CharType askch = src[cc++];
 	while(true)
 	{
@@ -233,11 +237,6 @@ template<class CharType> int eatString(const CharType* src)
 		}
 	}
 	return cc - 1;
-}
-
-template<class CharType> int eatChar(const CharType* src)
-{
-	return eatString<CharType>(src);
 }
 
 template<class CharType> int eatCppOperate(const CharType* src, Operate& op)
@@ -424,6 +423,14 @@ template<class CharType> CharType nextch(const CharType* src, int &cc, int & src
 	return ch;
 }
 
+template<class CharType> int eatBlank(const CharType* src, int & srcRow, int & srcCol)
+{
+	int cc=0;
+	CharType ch = nextch(src,cc,srcRow,srcCol);
+	while(ch && isBlankLetter(ch)) ch = nextch(src,cc,srcRow,srcCol);
+	return cc - 1;		
+}
+
 template<class CharType> int eatCppComment(const CharType* src, int & srcRow, int & srcCol)
 {
 	if(src[0] != '/' ) return 0;
@@ -495,12 +502,12 @@ template<class CharType> int eatIdent(const CharType* src)
 {
 	int cc = 0;
 	CharType ch = src[cc++];
-	if( isLetter(ch) || isDigist(ch) || ch=='$' || ch=='_' || ch=='@' || ch=='#' || ch>255)
+	if( isLetter(ch) || isDigit(ch) || ch=='$' || ch=='_' || ch=='@' || ch=='#' || ch>255)
 	{
 		do
 		{
 			ch = src[cc++];
-		}while(isLetter(ch) || isDigist(ch) || ch=='$' || ch=='_' || ch=='@' || ch=='#' || ch>255 
+		}while(isLetter(ch) || isDigit(ch) || ch=='$' || ch=='_' || ch=='@' || ch=='#' || ch>255 
 			|| ch=='-' /* allow function-param-list */ 
 			||	(ch==':' && cc > 3 && src[cc-2] =='n' && src[cc-3]=='f'));
 		//macro name

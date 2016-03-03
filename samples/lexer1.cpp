@@ -130,5 +130,9 @@ int main()
 	test_eatOperate();
 	test_OperateTerm();
 	
+	Lexer<wchar_t> lexer;
+	lexer.SetSource(L"a+b+12+\"test\"+10",0);
+	lexer.insymbol();
+	
 	return 1;
 }

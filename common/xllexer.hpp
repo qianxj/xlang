@@ -6,7 +6,9 @@
 #include "xllexerutil.hpp"
 
 namespace xl {
-
+	
+//using namespace util::token;
+	
 struct LexerFlag
 {
 	static const unsigned int tLn			= 0x0001;
@@ -26,16 +28,17 @@ class Lexer
 {
 	public:
 		int SetSource(const CharType* src,CharType * srcUrl=0);		
-		CharType  nextch();
-		int insymbol(unsigned int state = 0);
+		Token<CharType> & insymbol(/*unsigned int state = 0*/);
+	private:
+		void fillToken(TokenKind kind, int len);
 	public:
 		Token<CharType> token;
 		//source index
 		int cc;
 
 	private:
-		CharType * source;
-		CharType * sourceUrl;
+		const CharType * source;
+		const CharType * sourceUrl;
 	private:
 		int srcRow;
 		int srcCol;
@@ -48,32 +51,104 @@ int Lexer<CharType>::SetSource(const CharType* src,CharType * srcUrl)
 {
 	source = src;
 	sourceUrl = srcUrl;
-	token.cc = -1;
-	srcRow = 0;
+	cc = 0;
+	srcRow = 1;
 	srcCol = 0;
+	token.kind=kUnknown;
 	
 	return 0;
 }
 
 template<class CharType>
-CharType  Lexer<CharType>::nextch()
+void  Lexer<CharType>::fillToken(TokenKind kind, int len)
 {
-	if(!source[token.cc]) return 0;
-
-	token.cc ++;
-	if(token.ch == '\n') 
+	if(len < 1) return ;
+	token.kind = kind;
+	token.startcc=cc;
+	token.tokenLen = len;
+	token.strVal = source+cc;
+	token.strLen = len;
+	if(kind==kChar||kind==kString)
 	{
-		srcRow++;
-		srcCol = 1;
-		token.ch = source[token.cc];
-	} else  if(token.ch == '\r') 
-	{
-		if(source[token.cc + 1] == '\n') token.cc++;   //pos shift right
-		token.ch = '\n';
+		token.strVal++;
+		token.strLen -= 2;
 	}
-	srcCol ++;
-	return   token.ch;
 }
+
+template<class CharType>
+Token<CharType> &  Lexer<CharType>::insymbol()
+{
+	//set start pos
+	token.prevcc = cc;
+	int len = 0;
+	while(true)
+	{
+		len = eatBlank(source+cc,srcRow,srcCol);
+		if(len) cc+=len;
+		len = eatCppComment(source+cc,srcRow,srcCol);
+		if(!len) break;
+		cc+=len;
+	}
+	if(!cc)
+	{
+		token.kind =kEof;
+		return token;
+	}
+	
+	token.startcc = cc;
+	
+	//eat number
+	if(isDigit(source[cc]))
+	{
+		Number number;
+		len = eatNumber(source+cc, number);
+		token.kind = number.kind == Number::kInt ? kInt : kDouble;
+		if(token.kind = kInt)
+			token.intVal = number.intPart;
+		else
+			token.doubleVal = sizeof(CharType)==2?_wtof((wchar_t*)source):atof((char*)source);
+		fillToken(token.kind, len);
+		cc+=len;
+		return token;
+	}
+	
+	//eat string or char
+	if(source[cc]=='\'' || source[cc]=='\"')
+	{
+		len = eatString(source+cc);
+		fillToken(source[cc]=='\'' ? kChar : kString, len);
+		cc+=len;
+		return token;
+	}
+	
+	//eat ident
+	len = eatIdent(source+cc);
+	if(len > 0)
+	{
+		fillToken(kIdent,len);
+		cc += len;
+		return token;
+	}
+
+	//eat operate
+	Operate op;
+	len = eatCppOperate(source+cc,op);
+	if(len > 0)
+	{
+		token.opVal = op;
+		fillToken(kOperate,len);
+		cc += len;
+		return token;
+	}
+	
+	//has error
+	token.kind = kUnknown;
+	cc++; //skip one char
+	
+	return token;
+}
+
+
 	
 } //namespace xl
 

@@ -39,7 +39,7 @@ struct Token
 		Operate		opVal;
 	};
 	
-	CharType* 	strVal;
+	const CharType* 	strVal;
 	
 	//method
 	bool IsOperate(Operate op)		{	return isOperate(kind) &&  opVal == op;	}
