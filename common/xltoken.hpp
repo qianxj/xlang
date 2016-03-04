@@ -1,7 +1,9 @@
 #ifndef XLTOKEN_H
 #define XLTOKEN_H
 
+#include <string>
 #include "xltokenutil.hpp"
+
 using namespace xl::util::token;
 
 namespace xl
@@ -43,6 +45,7 @@ struct Token
 	
 	//method
 	bool IsOperate(Operate op)		{	return isOperate(kind) &&  opVal == op;	}
+	bool IsOperate()		{	return isOperate(kind); }
 	bool IsIdent()				{	return isIdent(kind);	}
 	bool IsString()				{	return isString(kind);	}
 	bool IsBool()				{	return isBool(kind);		}
@@ -72,6 +75,68 @@ struct Token
 		int pos = 0;
 		while(str[pos] == strVal[pos] && pos<=strLen)pos++; 
 		return !str[pos] && pos == strLen + 1;
+	}
+	
+	std::wstring  toString()
+	{
+		Token * tk = this; 
+		wchar_t buf[255] = {0};
+		if(tk->IsOperate())
+		{
+			_snwprintf(buf,254,L"%s", getOperateText(opVal));
+			return buf;
+		}
+		switch(tk->kind)  
+		{
+			case tkUnknown:
+				return L"unkown"; 
+			case tkKeyword:
+			{ 
+				//!!error
+				wchar_t* str = (wchar_t*)tk->strVal;
+				int pos = 0;
+				while(pos < tk->strLen && pos<252 )buf[pos++]=*str++;
+				return buf;
+			}
+			case tkString:
+			{
+				wchar_t* str = (wchar_t*)tk->strVal;
+				buf[0] = '\"';
+				int pos = 1;
+				while(pos - 1 < tk->strLen && pos<252)buf[pos++]=*str++;
+				buf[pos++] = '\"';
+				buf[pos] = '\0';
+				return buf;
+			}
+			case tkChar:
+			{ 
+				wchar_t* str = (wchar_t*)tk->strVal;
+				buf[0] = '\'';
+				int pos = 1;
+				while(pos - 1 < tk->strLen && pos<252)buf[pos++]=*str++;
+				buf[pos++] = '\'';
+				buf[pos] = '\0';
+				return buf;
+			}
+			case tkInt:
+				_snwprintf(buf,254,L"%d",tk->intVal);  
+				return buf;
+			case tkDouble:
+				_snwprintf(buf,254,L"%f",tk->doubleVal);  
+				return buf;
+			case tkIdent:
+			{
+				wchar_t* str = (wchar_t*)tk->strVal;
+				int pos = 0;
+				while(pos  < tk->strLen && pos<252)buf[pos++]=*str++;
+				return buf;
+			}
+			case tkBool:
+				return tk->intVal?L"true":L"false";
+			default:
+				return L"it?"; 
+		}
+		return L"it?"; 
 	}
 };
 

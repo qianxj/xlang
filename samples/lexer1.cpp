@@ -4,7 +4,7 @@
 #include "xllexer.hpp"
 #include <string>
 
-//#include "xltokenutil.cpp"
+#include "xltokenutil.cpp"
 
 using namespace xl;
 using namespace xl::util::lexer;
@@ -130,9 +130,16 @@ int main()
 	test_eatOperate();
 	test_OperateTerm();
 	
+	
 	Lexer<wchar_t> lexer;
-	lexer.SetSource(L"a+b+12+\"test\"+10",0);
-	lexer.insymbol();
+	lexer.SetSource(L"a + b + 12 + \"test\"+ 'A' + 'C'+ 10",0);
+	while(true)
+	{
+		Token<wchar_t> tk = lexer.insymbol();
+		if(tk.IsEof())break;
+		printf("%S",tk.toString().c_str());
+	}
+	
 	
 	return 1;
 }

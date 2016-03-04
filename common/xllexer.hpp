@@ -1,7 +1,11 @@
 #ifndef XLLEXER_H
 #define XLLEXER_H
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
 #include <assert.h>
+#include <wchar.h>
 #include "xltoken.hpp"
 #include "xllexerutil.hpp"
 
@@ -54,7 +58,7 @@ int Lexer<CharType>::SetSource(const CharType* src,CharType * srcUrl)
 	cc = 0;
 	srcRow = 1;
 	srcCol = 0;
-	token.kind=kUnknown;
+	token.kind=tkUnknown;
 	
 	return 0;
 }
@@ -68,7 +72,7 @@ void  Lexer<CharType>::fillToken(TokenKind kind, int len)
 	token.tokenLen = len;
 	token.strVal = source+cc;
 	token.strLen = len;
-	if(kind==kChar||kind==kString)
+	if(kind==tkChar||kind==tkString)
 	{
 		token.strVal++;
 		token.strLen -= 2;
@@ -80,33 +84,40 @@ Token<CharType> &  Lexer<CharType>::insymbol()
 {
 	//set start pos
 	token.prevcc = cc;
+	
+	if(!source[cc])
+	{
+		token.kind =tkEof;
+		return token;
+	}
+	
 	int len = 0;
 	while(true)
 	{
-		len = eatBlank(source+cc,srcRow,srcCol);
+		len = util::lexer::eatBlank(source+cc,srcRow,srcCol);
 		if(len) cc+=len;
-		len = eatCppComment(source+cc,srcRow,srcCol);
+		len = util::lexer::eatCppComment(source+cc,srcRow,srcCol);
 		if(!len) break;
 		cc+=len;
 	}
-	if(!cc)
+	if(!source[cc])
 	{
-		token.kind =kEof;
+		token.kind =tkEof;
 		return token;
 	}
 	
 	token.startcc = cc;
 	
 	//eat number
-	if(isDigit(source[cc]))
+	if(util::lexer::isDigit(source[cc]))
 	{
-		Number number;
+		util::lexer::Number number;
 		len = eatNumber(source+cc, number);
-		token.kind = number.kind == Number::kInt ? kInt : kDouble;
-		if(token.kind = kInt)
+		token.kind = number.kind == util::lexer::Number::kInt ? tkInt : tkDouble;
+		if(token.kind = tkInt)
 			token.intVal = number.intPart;
 		else
-			token.doubleVal = sizeof(CharType)==2?_wtof((wchar_t*)source):atof((char*)source);
+			token.doubleVal = sizeof(CharType)==2?wcstod((wchar_t*)source,0):atof((char*)source);
 		fillToken(token.kind, len);
 		cc+=len;
 		return token;
@@ -115,34 +126,34 @@ Token<CharType> &  Lexer<CharType>::insymbol()
 	//eat string or char
 	if(source[cc]=='\'' || source[cc]=='\"')
 	{
-		len = eatString(source+cc);
-		fillToken(source[cc]=='\'' ? kChar : kString, len);
+		len = util::lexer::eatString(source+cc);
+		fillToken(source[cc]=='\'' ? tkChar : tkString, len);
 		cc+=len;
 		return token;
 	}
 	
 	//eat ident
-	len = eatIdent(source+cc);
+	len = util::lexer::eatIdent(source+cc);
 	if(len > 0)
 	{
-		fillToken(kIdent,len);
+		fillToken(tkIdent,len);
 		cc += len;
 		return token;
 	}
 
 	//eat operate
 	Operate op;
-	len = eatCppOperate(source+cc,op);
+	len = util::lexer::eatCppOperate(source+cc,op);
 	if(len > 0)
 	{
 		token.opVal = op;
-		fillToken(kOperate,len);
+		fillToken(tkOperate,len);
 		cc += len;
 		return token;
 	}
 	
 	//has error
-	token.kind = kUnknown;
+	token.kind = tkUnknown;
 	cc++; //skip one char
 	
 	return token;

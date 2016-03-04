@@ -8,24 +8,24 @@ namespace util { namespace token {
 
 enum TokenKind : char
 {
-	kEof = 0,
-	kUnknown = 1,
-	kIdent =2,
-	kKeyword =3,
-	kInt	=4,
-	kUInt	=5,
-	kDouble = 6,
-	kFloat = 7,
-	kString = 8,
-	kChar = 9,
-	kBool = 10,
-	kOperate = 11,
-	kHex = 12,
+	tkEof = 0,
+	tkUnknown = 1,
+	tkIdent =2,
+	tkKeyword =3,
+	tkInt	=4,
+	tkUInt	=5,
+	tkDouble = 6,
+	tkFloat = 7,
+	tkString = 8,
+	tkChar = 9,
+	tkBool = 10,
+	tkOperate = 11,
+	tkHex = 12,
 	
-	kComment = 32,
-	kBlockComment = 33,
-	kBlank = 34,
-	kLn	 = 35
+	tkComment = 32,
+	tkBlockComment = 33,
+	tkBlank = 34,
+	tkLn	 = 35
 };
 	
 enum Operate : char
@@ -121,21 +121,21 @@ enum Operate : char
 	opPath			= opDiv		
 };
 	
-inline bool isOperate(TokenKind kind)		{	return kind == kOperate; }
-inline bool isIdent(TokenKind kind)				{	return kind == kIdent;	}
-inline bool isString(TokenKind kind)				{	return kind == kString;	}
-inline bool isBool(TokenKind kind)				{	return kind == kBool;		}
-inline bool isChar(TokenKind kind)				{	return kind == kChar;	}
-inline bool isInt(TokenKind kind)				{	return kind == kInt;	}
-inline bool isDouble(TokenKind kind)				{	return kind == kDouble || kind == kFloat;	}
-inline bool isFloat(TokenKind kind)				{	return kind == kFloat;	}
+inline bool isOperate(TokenKind kind)		{	return kind == tkOperate; }
+inline bool isIdent(TokenKind kind)				{	return kind == tkIdent;	}
+inline bool isString(TokenKind kind)				{	return kind == tkString;	}
+inline bool isBool(TokenKind kind)				{	return kind == tkBool;		}
+inline bool isChar(TokenKind kind)				{	return kind == tkChar;	}
+inline bool isInt(TokenKind kind)				{	return kind == tkInt;	}
+inline bool isDouble(TokenKind kind)				{	return kind == tkDouble || kind == tkFloat;	}
+inline bool isFloat(TokenKind kind)				{	return kind == tkFloat;	}
 inline bool isNumber(TokenKind kind)			
-	{	return kind == kDouble|| kind == kFloat || kind == kChar || kind == kInt || kind == kHex; }
-inline bool isLiteral(TokenKind kind)			{	return kind == kString || kind == kBool || isNumber(kind);	}
-inline bool isEof(TokenKind kind)				{	return kind == kEof;	}
-inline bool isComment(TokenKind kind)			{	return kind == kComment || kind == kBlockComment;	}
-inline bool isLn(TokenKind kind)				{	return kind == kLn;	}
-inline bool isBlank(TokenKind kind)				{	return kind == kBlank;	}
+	{	return kind == tkDouble|| kind == tkFloat || kind == tkChar || kind == tkInt || kind == tkHex; }
+inline bool isLiteral(TokenKind kind)			{	return kind == tkString || kind == tkBool || isNumber(kind);	}
+inline bool isEof(TokenKind kind)				{	return kind == tkEof;	}
+inline bool isComment(TokenKind kind)			{	return kind == tkComment || kind == tkBlockComment;	}
+inline bool isLn(TokenKind kind)				{	return kind == tkLn;	}
+inline bool isBlank(TokenKind kind)				{	return kind == tkBlank;	}
 
 	
 bool isAsnOperate(Operate op );
