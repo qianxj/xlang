@@ -1,9 +1,9 @@
 #include <assert.h>
 #include <stdio.h>
 #include <wchar.h>
-#include "xllexer.hpp"
 #include <string>
 
+#include "xllexer.hpp"
 #include "xltokenutil.cpp"
 
 using namespace xl;

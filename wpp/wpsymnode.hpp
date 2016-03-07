@@ -22,9 +22,10 @@ enum SymKind : char
 	kSymSyn		= 11,
 	kSymSynTerm	= 12,
 	kSymGuard	= 13,
-	kSymSatisfy  	= 14,
+	kSymSatisfy 	= 14,
 	kSymStmt	= 15,
-	kLiteral	= 16
+	kSymLiteral	= 16,
+	kSymLoop	= 17
 };
 
 template<class TKind>	
@@ -44,7 +45,7 @@ struct SymOneof : public SymNode<SymKind>
 	SymNode<SymKind>* terms;
 };
 
-struct SymUntil : public SymNode<SymKind>
+struct SymLoop : public SymNode<SymKind>
 {
 	SymNode<SymKind>* cond;
 	SymNode<SymKind>* term;
@@ -103,7 +104,7 @@ template<class T>
 SymLiteral*  makeLiteralEx(T &val)
 {
 	SymLiteral * term = allocNode<SymLiteral>();
-	term->kind = kLiteral;
+	term->kind = kSymLiteral;
 	term->val = new util::misc::TValue(val);
 	return term;
 }
