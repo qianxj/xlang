@@ -1,0 +1,142 @@
+use "wpp.xlang.vd"
+use "process.xlang.vd"
+
+processor wpp_complier(node r)
+[
+	/*
+	tkUnknown = 0,
+	tkArrayType = 1,
+	tkClass = 2,
+	tkEnum = 3,
+	tkError = 4,
+	tkInterface = 5,
+	tkPointerType = 6,
+	tkStruct = 7,
+	tkTypeParam = 8,
+	tkPair		= 9
+	*/
+	apply class_key(x)				:= 0x2;
+	apply class_key("class") 		:= 0x2;
+	apply class_key("interface") 	:= 0x3;
+	apply class_key("struct") 		:= 0x7;
+	apply class_key("enum") 		:= 0x5;
+	
+	apply type_spec(-) 					:= 0x0;
+	apply type_spec("extern") 		:= 0x1;
+	apply type_spec("static")			:= 0x2;
+	apply type_spec("mutable")		:= 0x4;
+	apply type_spec("readonly")		:= 0x8;
+	apply type_spec("thread_local") := 0x10;	
+	apply type_spec("volatile")		:= 0x20;
+	apply type_spec("native")			:= 0x10;
+	apply type_spec("safe")			:= 0x20;
+	apply type_spec("manage")		:= 0x20;
+	apply type_spec("const")			:= 0x40;
+	apply type_spec("in")				:= 0x80;
+	apply type_spec("out")				:= 0x100;
+	apply type_spec("byref")			:= 0x200;
+	apply type_spec("ref")				:= 0x200;
+	apply type_spec("byval")			:= 0x400;
+	apply type_spec("inline")			:= 0x100;
+	apply type_spec("explicit")		:= 0x400;
+	apply type_spec("overridev")		:= 0x800;
+	apply type_spec("stdcall")			:= 0x1000;
+	apply type_spec("friend")			:= 0x2000;
+	apply type_spec("virtual")  		:= 0x4000;
+	
+	apply Op(-)		:= "***";
+	apply Op('+') 		:= "add";
+	apply Op('-') 		:= "sub";
+	apply Op('*') 		:= "mul";
+	apply Op('/') 		:= "div";
+	apply Op('%') 		:= "mod";
+	apply Op('>>') 	:= "shr";
+	apply Op('<<') 	:= "shl";
+	apply Op('|') 		:= "bor";
+	apply Op('&') 		:= "band";
+	apply Op('^') 		:= "xor";
+	apply Op('~') 		:= "bnot";
+	apply Op('=') 		:= "asn";
+	apply Op('||') 		:= "or";
+	apply Op('&&') 	:= "and";
+	apply Op('>') 		:= "gt";
+	apply Op('>=') 	:= "gte";
+	apply Op('<') 		:= "lt";
+	apply Op('<=') 	:= "lte";
+	apply Op('==') 	:= "eq";
+	apply Op('!=') 		:= "neq";
+	apply Op('+=') 	:= "add-asn";
+	apply Op('-=') 	:= "sub-asn";
+	apply Op('*=') 	:= "mul-asn";
+	apply Op('/=') 	:= "div-asn";
+	apply Op('%=') 	:= "mod-asn";
+	apply Op('>>=') 	:= "shr-asn";
+	apply Op('<<=') 	:= "shl-asn";
+	apply Op('|=') 	:= "bor-asn";
+	apply Op('&=') 	:= "band-asn";
+	apply Op('^=') 	:= "xor-asn";
+	apply Op('~=') 	:= "bnot-asn";
+
+	/*
+	skNil		= 0,
+	skType		= 1,
+	skField		= 2,
+	skNamespace = 3,
+	skMethod	= 4,
+	skVariant	= 5,
+	skParam		= 6,
+	skTypeParam	= 7,
+	skCompType	= 8,
+	skOleTerm	= 9,
+	skNSOleTerm = 10,
+	skOleField	= 11,
+	skOleMethod = 12,
+	skNativeType	= 13,
+	skItem		= 14 //comp field param variant
+	*/
+	apply item-kind(x) -> item-kind(fn:Band(fn:context_get_word(fn:context_find_token(x)),0xf));
+	apply item-kind(0) 	:= "unknown";
+	apply item-kind(1) 	:= "type";
+	apply item-kind(2) 	:= "field";
+	apply item-kind(11) := "field";
+	apply item-kind(3) 	:= "namespace";
+	apply item-kind(4)	:= "method";
+	apply item-kind(12)	:= "method";
+	apply item-kind(13)	:= "ntype";
+	apply item-kind(5) 	:= "variant";
+	apply item-kind(6) 	:= "param";
+	apply item-kind(7) 	:= "typeparam";
+	apply item-kind(8) 	:= "comptype";
+	
+	apply type-kind(0) :="unkown";
+	apply type-kind(1) :="array";
+	apply type-kind(2) :="class";
+	apply type-kind(3) :="enum";
+	apply type-kind(4) :="error";
+	apply type-kind(5) :="interface";
+	apply type-kind(6) :="ptr";
+	apply type-kind(7) :="struct";
+	apply type-kind(8) :="typeparam";
+	apply type-kind(9) :="pair";
+	
+
+	apply IsTypeItem(h)				-> fn:Or(fn:Eq(fn:Band(h,0xf),1),fn:Eq(fn:Band(h,0xf),13));
+	apply IsMethodItem(h)			-> fn:Or(fn:Eq(fn:Band(h,0xf),4),fn:Eq(fn:Band(h,0xf),12));
+	apply IsFieldItem(h)				-> fn:Or(fn:Eq(fn:Band(h,0xf),2),fn:Eq(fn:Band(h,0xf),11));
+	apply IsNameSpaceItem(h)	-> fn:Eq(fn:Band(h,0xf),3);
+	apply IsCompTypeItem(h)		-> fn:Eq(fn:Band(h,0xf),8);
+	apply IsParamItem(h)			-> fn:Eq(fn:Band(h,0xf),6);
+	apply IsVariantItem(h)			-> fn:Eq(fn:Band(h,0xf),5);
+	apply IsTypeParam(h)			-> fn:Eq(fn:Band(h,0xf),7);
+	
+	apply IsClassItem(h)			-> fn:branch(IsTypeItem(h),fn:Eq(fn:symGetTypeKind(h),2),false);
+	apply IsStructItem(h)			-> fn:branch(IsTypeItem(h),fn:Eq(fn:symGetTypeKind(h),7),false);
+	apply IsInterfaceItem(h)		-> fn:branch(IsTypeItem(h),fn:Eq(fn:symGetTypeKind(h),3),false);
+	apply IsEnumItem(h)			-> fn:branch(IsTypeItem(h),fn:Eq(fn:symGetTypeKind(h),5),false);
+	
+	apply IsNativeMethod(h)		-> fn:branch(IsMethodItem(h),fn:symIsMethodNative(h),false);
+	apply IsNativeClass(h)			-> fn:branch(IsClassItem(h), fn:symIsSuperClass(T("xnative"),h),false);
+	apply IsNativeClassPtr(h)		-> fn:Eq(fn:Band(h,0xf),13);
+	apply toNativeClass(h)			-> fn:Bor(fn:Band(h,0xfffffff0),13);
+	
+]

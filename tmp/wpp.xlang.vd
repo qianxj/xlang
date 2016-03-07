@@ -1,0 +1,126 @@
+use "model.xlang.vd"
+
+lang xlang 
+[
+	syntax wpp
+	[
+		declare =  wpp_unit; 
+
+		wpp_declare = set-define | feature-define| ruler-define| ole-namespace|namespace-define| declare-variant|enum-define|class-define | function-define;
+		wpp_unit = "unit"   [identifier]  '[' {wpp_declare} ']';
+		wpp_unit2 = "unit2"   [identifier]  '[' {wpp_declare} ']';
+
+		//set define
+		type-identifier = type-primary | identifier | "dt"|"class"|"struct"|"enum"|"field" | "xsd" ':' ( type-primary | identifier );
+		set-define = "set" type-identifier [ ':'  ( type-identifier | qualified-id)  ]  {feature-term} ';' ;
+		
+		//feature define
+		//特性信息可以描述对象所具有的概念性标准，而不仅是编码性标准
+		feature-define = "feature"  identifier [ '('  identifier { ',' identifier } ')'	] {feature-term} ';' ;
+		feature-term = ( qualified-id | type-identifier | literal) [ ('('|'[') [ [qualified-id | feature-term | literal ]  { [',']  (qualified-id | feature-term | literal) } ] (')'|']') ];
+		
+		//ruler
+		ruler-define ="ruler"  identifier [context identifier ['->' identifier] ]  [ state ruler_state ['->' ruler_state] ] '='  match-expression  '->'  statement  ;
+		ruler_state = ( identifier | literal );
+		match-expression = conditional-expression;
+		
+		//namepsace define
+		namespace-define = "namespace" [ identifier ] '{'  { wpp_declare  } '}';
+		//ole namespace
+		ole-namespace = "namespace" identifier "for" "ole" literal ';';
+
+		//id
+		unqualified-id = identifier;
+		qualified-id = ['::']  {nested-name-specifier} unqualified-id ;
+		nested-name-specifier = identifier '::'  ;
+		
+		native-spec = [ "native" ]   native-spec-list ;
+		native-spec-list = { native-spec-item };
+		native-spec-item = "from" string-literal | "alias"  string-literal;
+
+		//class define
+		class-define = ( "class"|"struct"|"dt") identifier [ '(' [ param-list ] ')' ] [ ':' class-base-list]  [native-spec] {feature-term} [ '{' [class-body] '}' ] ';' ;
+		class-base = ["public"|"private"] identifier ;
+		class-base-list = L(class-base,',') ;
+		class-body  = { "public" ':' | "protected" ':' | "private" ':' | wpp_declare } ;
+
+		//enum define
+		enum-define = "enum"   identifier [ ':'  identifier ]  {feature-term} '{' 	enum-body '}' ';';
+		enum-body  = identifier {feature-term} [variant-initial] {  ',' identifier {feature-term} [variant-initial] } ;
+		
+		variant-name  	= identifier;
+		variant-initial		= '=' (xmldata | sql-statemt | expression);
+		declare-variant-term = variant-name {feature-term} [variant-initial];
+		declare-variant 	= (type-id|"var") L(declare-variant-term, ',') ';' ;
+		field-name      	= identifier;
+		class-field    		= type-id field-name;
+
+		type-spec 			= "typedef"|"manage"|"unsigned"|"static"|"virtual"|"stdcall"|"const"|"byref"|"override"|"inline"|"ref"|"native";
+		type-primary 		= "int"|"double"|"float"|"string"|"bool"|"int64"|"short"|"long"|"oleobject"|"void"|"uint"|"ushort"|"char";
+		type-array-part	= '['  [integer-literal|identifier] ']';
+			                             
+		type-id 			= {type-spec} (type-primary | qualified-id) ['<' ( type-id|"class" )  { ','  (type-id|"class") } '>'] {type-array-part};
+
+		//function declare
+		function-define = type-id  identifier  '(' [ param-list ] ')'   [native-spec] {feature-term} (';' | '{'  [function-body]  '}' ) ;
+		param-list = L(param-item,',');//param-item { ','  param-item} ;
+		param-item = type-id [ identifier ] [ '=' initializer_clause ];
+		function-body = { statement };
+
+		//initial
+		initializer_clause = assignment-expression;
+		
+		//iter statement
+		for-statement = "for" '(' statement expression-statement expression')' statement ;
+		if-statement	= "if" '(' conditional-expression ')' statement  [ "else"  statement ] ;
+		while-statement = "while"  '(' conditional-expression ')' statement ;
+		do-statement = "do" statement "while" '(' conditional-expression ')';
+		return-statement = "return" ( ';' | expression-statement ); 
+		break-statement = "break" ';' ;
+		continue-statement = "continue" ';' ;
+		//switch-statement = "switch" '(' conditional-expression ')' statement;
+		//case-statement = "case "  (literal | qualified-id) ':' ;
+		compound-statement ='{' {statement } '}';
+		
+		//statement
+		expression-statement = expression ';' ;
+		statement = ';' | compound-statement  | while-statement| do-statement | case-statement | switch-statement | for-statement | if-statement | return-statement  | break-statement | continue-statement  | declare-variant| expression-statement ;
+			
+		//expression
+		assignment-operator =   '=' | '*=' | '/=' |  '%=' | '+='|  '-=' |  '>>=' | '<<=' |  '&=' | /*'?=' |*/ '|=' ;
+		binary-operator=    '*' | '/' | '%'  |  '+' | '-'  |  '<<' | '>>'  | '<'  | '<=' | '>' | '>='| '==' |  '!='  |  '&'  | '^' | '|' | '&&' | '||' ;
+		primary-expression = "this" | literal |double-literal| '(' expression ')' | qualified-id |xmldata;
+		
+		//id-expression = dentifier;
+		argument	= conditional-expression;
+		argument-list = L(argument,',') ;
+		function-argument = '(' [argument-list] ')'; 
+		field-item = '.' identifier;
+		element-item = '[' conditional-expression ']';
+		postfix-operator = '++'|'--';
+		postfix-expression = primary-expression { postfix-operator |field-item | function-argument | element-item};
+		
+		unary-expression  = ("sizeof"|'~'|'*' |'!'| '-' |'+' |'++'|'--'|"new"|"delete") unary-expression | postfix-expression;
+		cast-expression = "cast" '('  cast-expression "as" type-id ')' | "trust" '('  cast-expression "as" type-id ')' |unary-expression;
+		binary-expression =  cast-expression { binary-operator  cast-expression };
+		assignment-expression = 	binary-expression  [ assignment-operator binary-expression ]	;
+		conditional-expression = binary-expression;
+		expression = assignment-expression ;
+	]
+	
+	ensure wpp
+	[
+		qualified-id = identifier ['::'] ;
+		nested-name-specifier = identifier '::' ;
+		sql-statemt = "select"|"insert"|"delete"|"update";
+		class-define = "class"|"struct"|"dt";
+		enum-define = "enum";
+		xmldata = '<' identifier;
+		element = '<' identifier;
+		declare-variant = ("var"|type-id) identifier ( ',' identifier | ';' |'=');
+		function-define = ("var"|type-id) identifier '(';
+		expression =  "cast"|"trust" |"this" |"sizeof"| literal | '(' | variant-name|qualified-id|'~'|'!'| '*' | '-' |'+' |'++'|'--'|"new"|"delete" ;
+		ole-namespace = "namespace" identifier "for" "ole";
+		native-spec = "native"|"from"|"alias";
+	]
+]

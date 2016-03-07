@@ -1,0 +1,87 @@
+use "wpp.xlang.vd"
+use "process.xlang.vd"
+
+processor wpp_complier(node r)
+[
+
+	//如何判断处理等价，或是直接替换
+	//基本处理
+	apply fnApply(x)									-> fn:apply(x);
+	
+	//变量处理
+	apply fnBind(t v)									-> fn:bind(t,v);
+	apply fnPush(t v)									-> fn:Push(t,v);
+	apply fnPop(t v)									-> fn:Pop(t,v);
+	apply fnTop(t n)									-> fn:Top(t,n);
+	
+	//上下文函数
+	apply fnContextEnterScope() 				-> fn:context_enter_scope();
+	apply fnContextLeaveScope() 				-> fn:context_leave_scope();		
+	apply fnContextPushWord(hitem ide) 		-> fn:context_push_word(hitem, ide);
+	apply fnContextFindToken(ide)				-> fn:context_find_token(ide);
+	apply fnContextGetWord(index)				-> fn:context_get_word(index);
+	apply fnContextFindWord(ide)				-> fn:context_get_word(fn:context_find_token(ide));
+	
+	//符号表函数
+	apply fnSymAddNamespace(haxis ide)					-> fn:symAddNamespace(haxis,ide);
+	apply fnSymSetNSOleTerm(hnamespace)				-> fn:symSetNSOleTerm(hnamespace);
+	apply fnSymAddNSOleTerm(hnamespace olename) -> fn:symAddNamespace(hnamespace,olename);
+
+	apply fnSymAddType(haxis kind ide)			-> fn:symAddType(haxis,kind,ide);
+	apply fnSymAddField(haxis ide spec htype)	-> fn:SymAddField(haxis,ide,spec,htype);
+	apply fnSymAddParam(haxis htype ide)		-> fn:n:symAddParam(haxis,htype,ide);
+	
+	//复合类型
+	apply	fnSymMakeTypeRef()									-> fn:symMakeTypeRef();
+	apply fnSymInsertCompTypeItem(hcomptype htype)	-> fn:SymInsertCompTypeItem(hcomptype, htype);
+	
+	apply symGetMethodParamHandle(hmethod ide)			-> fn:symGetMethodParamHandle(hmethod,ide);
+	
+	apply fnSymGetTermName(hterm)			-> fn:symGetTermName(hterm);
+	apply fnSymGetTermNameID(hterm)		-> fn:symGetTermNameID(hterm);
+	apply fnSymGetTermType(hterm)			-> fn:symGetTermType(hterm);
+	
+	//dump符号表
+	apply fnSymDump()								-> fn:SymDump();
+	apply fnSymDumpType(hType)				-> fn:SymDumpType(hType);
+	apply fnSymDumpCompType(hCompType)	-> fn:SymDumpCompType(hCompType);
+	apply fnSymDumpMethod(hMethod)			-> fn:SymDumpMethod(hMethod);
+	apply fnSymDumpField(hType)				-> fn:SymDumpField(hType);
+	apply fnSymDumpParam(hMethod)			-> fn:SymDumpParam(hMethod);	
+	apply fnSymDumpVariant(hMethod)			-> fn:SymDumpVariant(hMethod);	
+	apply fnSymDumpTypeParam(hType)		-> fn:SymDumpTypeParam(hType);
+	
+	//查找
+	apply	symLookupItem(haxis ide)				-> fn:symLookupItems(haxis, ide);
+	
+	//错误
+	apply fnError(x)
+	apply fnWarn(x)
+	
+	//重定义
+	apply CheckRedefine(x)
+	//未定义
+	apply CheckUndefine(x);
+	//类型不匹配
+	apply CheckTypeNomatch(x y);
+	
+	apply CHECK(cnd msg) -> if(fn:Not(cnd)) fn:print(msg);
+	apply ChkError(token name errormsg) ->
+	{
+		let $complier-state = 0;
+		if(fn:TextUrl())
+			fn:print("\r\n错误 ", fn:TextUrl(),"(", fn:TextRow(token)," ,",fn:TextCol(token),"):   ", name, errormsg);
+		else
+			fn:print("\r\n错误  ",fn:TextRow(token)," ,",fn:TextCol(token),":   ", name, errormsg);
+	}
+		
+	apply IsNodeName(t n) -> fn:Eq(fn:name(t),fn:hash(n));
+	
+	/*
+	apply OR(x ...)	-> fn:branch(x,true,OR(fn:next(x)));
+	apply OR(x)		-> fn:branch(x,true,false);	
+		
+	apply AND(x ...)	-> fn:branch(x,AND(fn:next(x)),false);
+	apply AND(x)		-> fn:branch(x,true,false);
+	*/
+]

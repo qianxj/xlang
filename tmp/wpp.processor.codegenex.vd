@@ -1,0 +1,1528 @@
+use "wpp.xlang.vd"
+use "process.xlang.vd"
+use "wpp.processor.def.vd"
+use "wpp.processor.util.vd"
+use "wpp.processor.const.vd"
+use "wpp.processor.type.vd"
+use "wpp.ia32.processor.vd"
+use "wpp.processor.codegen.util.vd"
+
+//?apply-statement-if;
+//?declare-variant;
+//?class-define;
+//?function-define;
+//?apply-define;
+processor wpp_complier(node r)
+[
+	//using processor wpp_ia32; 
+	//代码生成
+	context context-method-codegenex
+	[
+		apply JitMethod(hmethod) ->
+		{
+			fn:SavePoint();
+			
+			if($trace-object)fn:print("\n\t function ", fn:symGetTermName(fn:symGetTermType(hmethod)),
+				" ",fn:symGetTermName(hmethod),"(","){");
+			
+			fn:bind($htype,fn:symGetParent(hmethod));
+			fn:bind($hmethod,hmethod);
+			
+			let $pcode = fn:symGetMethodPCode($hmethod);
+			if($pcode)
+			{		
+				//生成代码
+				let  $codepc = fn:symGetCodePc();
+				
+				EnterFrame();
+				fn:bind($retlabel , Label(label_ret));
+
+				//fn:debugbreak();
+				proc-node($pcode);
+				
+				LABEL(label_ret);
+				let $spec = fn:symGetMethodSpec($hmethod);
+				if(fn:Band($spec,type_spec("static"))) //static
+				{
+					if(fn:Band($spec,type_spec("stdcall")))
+						LeaveFrame(fn:symGetMethodParamSize($hmethod));
+					else
+						LeaveFrame(0);
+				}else //thiscall
+				{
+					if(fn:Band($spec,type_spec("stdcall")))
+						LeaveFrame(fn:Add(fn:symGetMethodParamSize($hmethod),Imm(4)));
+					else
+						LeaveFrame(fn:symGetMethodParamSize($hmethod));
+				}
+				
+				if(fn:Neq($codepc,fn:symGetCodePc()))
+				{
+					fn:symSetMethodAddr($hmethod,$codepc);
+					if($trace-object)
+						fn:print(fn:Disassemble($hmethod));
+				}
+			}
+			if($trace-object)fn:print("\n\t}");
+			
+			fn:bind($hmethod, 0);
+
+			//fn:print("\r\nbefore restore used pages :",fn:AllocPages());
+			fn:RestorePoint();
+			//fn:print("\r\n===after restore used pages :",fn:AllocPages());			
+		}
+					
+		apply proc-function-define(Method(hmethod p body)) ->
+		{
+			//return JitMethod(hmethod);
+					
+			fn:SavePoint();
+			
+			if($trace-object)fn:print("\n\t function ", fn:symGetTermName(fn:symGetTermType(hmethod)),
+				" ",fn:symGetTermName(hmethod),"(","){");
+			
+			//生成代码
+			let  $codepc = fn:symGetCodePc();
+			
+			//make stub
+			/*
+			0x2040000 e900000000     jmp 02040005;
+			0x2040005 51             push ecx;
+			0x2040006 6884000000     push 0x84;
+			0x204000b 68e80ed901     push 0x1d90ee8;
+			0x2040010 c7c0605b0310   mov eax,0x10035b60;
+			0x2040016 ffd0           call eax;
+			0x2040018 81c408000000   add esp,0x8;
+			0x204001e 59             pop ecx;
+			0x204001f 2d05000402     sub eax, 02040005;
+			0x2040024 890501000402   mov [0x2040001],eax;
+			0x204002a 0505000402     add eax, 02040005;
+			0x204002f ffe0           jmp eax;
+			0x2040031 c20000         ret 0x0;
+			*/
+			
+			//JMP(Imm(0));
+			fn:emitChar(0xe9);
+			fn:emitInteger(0x0);
+			let  $addr = fn:Sub(fn:symGetCodePc(),4);
+			//PUSH(ecx)
+			fn:emitChar(0x51);
+			//PUSH(Imm(hmethod));
+			fn:emitChar(0x68);
+			fn:emitInteger(hmethod);
+			//PUSH(Imm(fn:symGetContext()));
+			fn:emitChar(0x68);
+			fn:emitInteger(fn:symGetContext());
+			//MOV(eax,Fct(JitMethod));
+			fn:emitChar(0xC7);
+			fn:emitChar(0xC0);
+			fn:emitInteger(fn:function(JitMethod));
+			//CALL(eax);
+			fn:emitChar(0xff);
+			fn:emitChar(0xd0);
+			//ADD(esp,Imm(8));
+			fn:emitChar(0x81);
+			fn:emitChar(0xC4);
+			fn:emitInteger(0x8);
+			//POP(ecx);
+			fn:emitChar(0x59);
+			//SUB(eax,Imm(fn:Add($addr,4)));
+			fn:emitChar(0x2d);
+			fn:emitInteger(fn:Add($addr,4));
+			//MOV(Address(Imm($addr)),eax);
+			fn:emitChar(0x89);
+			fn:emitChar(0x05);
+			fn:emitInteger($addr);
+			//ADD(eax,Imm(fn:Add($addr,4)));
+			fn:emitChar(0x05);
+			fn:emitInteger(fn:Add($addr,4));
+			//JMP(eax);
+			fn:emitChar(0xff);
+			fn:emitChar(0xe0);
+			//RET(Imm(0));
+			fn:emitChar(0xC2);
+			fn:emitInteger(0);
+			
+			/*
+			JMP(Imm(0));
+			let  $addr = fn:Sub(fn:symGetCodePc(),4);
+			PUSH(ecx);
+			PUSH(Imm(hmethod));
+			PUSH(Imm(fn:symGetContext()));
+			MOV(eax,Fct(JitMethod));
+			CALL(eax);
+			ADD(esp,Imm(8));
+			POP(ecx);
+			SUB(eax,Imm(fn:Add($addr,4)));
+			MOV(Address(Imm($addr)),eax);
+			ADD(eax,Imm(fn:Add($addr,4)));
+			JMP(eax);
+			RET(Imm(0));
+			*/
+			
+			fn:symSetMethodAddr(hmethod,$codepc);
+			if($trace-object)
+				fn:print(fn:Disassemble(hmethod));
+			
+			fn:RestorePoint();
+		}
+		
+		//工具
+		apply ValueOfLiteral(OpLiteral(regs typ lt)) := lt;
+		apply TypeOfLiteral(OpLiteral(regs typ lt)) := typ;		
+		//表达式项
+		apply RegsOfTerm(x) -> fn:child(x);
+		apply TypeOfTerm(x) -> fn:branch(IsNodeName(x,"OpValue"),$htype,fn:ChildNext(x,1));
+					
+		apply IsRegisterNode(x) 	->  IsNodeName(x,"Register");
+		apply IsXMMNode(x)			->  IsNodeName(x,"XMM");
+		apply IsAddressNode(x) 	->  IsNodeName(x,"Address");
+		apply IsImmNode(x) 		->  IsNodeName(x,"Imm");
+					
+		//寄存器分配
+		//假定所有计算项的第一项表示占用寄存器的数目
+		apply evalRegister(x) ->
+		{
+				fn:print("\n未处理项:\n");
+				fn:trace(x);
+		}
+		
+		//apply evalRegister(x : OpCompStmt) ->for $t in x evalRegister($t);
+		apply evalRegister(OpExprStmt(exp)) -> evalRegister(exp);
+		
+		apply setUsedRegisters(x val) -> fn:Bor(fn:Band(x,0xffffff00),val);
+		apply setUsedItems(x val)		-> fn:Bor(fn:Band(x,0xff00ffff),fn:Shr(val,16));
+		apply setFRegisters(x val) 	-> fn:Bor(fn:Band(x,0xffff00ff),fn:Shr(val,8));
+		
+		apply getUsedRegisters(x) 	-> fn:Band(x,0xff);
+		apply getUsedItems(x)			-> fn:Band(fn:Shr(x,16),0xff);
+		apply getFRegisters(x) 			-> fn:Band(fn:Shr(x,8),0xff);
+
+		apply needRegisters(lhs)				-> getUsedRegisters(fn:child(lhs));
+		apply  getNeedRegistes(r1 r2)		->
+		{
+			let $r1 = getUsedRegisters(r1);
+			let $r2 = getUsedRegisters(r2);
+			if(fn:Eq($r1,$r2)) return fn:Inc($r1);
+			else if(fn:Gt($r1,$r2)) return $r1;
+			return $r2;
+		}
+		
+		apply mergeRegister(regs r1 r2) 		-> setUsedRegisters(regs,getNeedRegistes(r1,r2));
+
+		//主项
+		apply evalRegister(OpNill());
+		apply evalRegister(OpThis()) ->return regs;
+		apply evalRegister(OpLiteral(regs typ lt)) -> return regs;
+		apply	evalRegister(OpItem(regs typ hitem)) -> return regs;
+		apply	evalRegister(OpThis(regs)) -> return regs;
+		
+		//后缀操作符
+		apply evalRegister(OpField(regs typ exp hitem))	->
+		{
+			let $regs = evalRegister(exp);
+			if(fn:Eq(getUsedRegisters($regs),0)) fn:bind($regs,setUsedRegisters($regs,1));
+			fn:setValue(regs,$regs);
+			return regs;
+		}
+		
+		apply evalRegister(OpElement(regs typ rank exp idx))	->
+		{
+			let $regs  = evalRegister(exp);
+			let $regs1 = evalRegister(idx);
+			fn:bind($regs,mergeRegister(regs, $regs,$regs1));
+			if(fn:Lt($regs,2)) fn:bind($regs,2);
+			fn:setValue(regs,$regs);
+			return regs;
+		}
+		
+		apply needRegisterMoreThanOne( x /*any(regs typ exp) */) ->
+		{
+			let $regs  = evalRegister(fn:ChildNext(x,2));
+			if(fn:Not(getUsedRegisters($regs)))fn:bind($regs,setUsedRegisters($regs,1));
+			fn:setValue(fn:child(x),$regs);
+			return fn:child(x);
+		}
+		
+		apply evalRegister(x : OpInc ) 	-> needRegisterMoreThanOne(x);
+		apply evalRegister(x : OpDec) 	-> needRegisterMoreThanOne(x);
+		apply evalRegister(x : OpUInc)	-> needRegisterMoreThanOne(x);
+		apply evalRegister(x : OpUDec)	-> needRegisterMoreThanOne(x);
+		apply evalRegister(x : OpNeg)	-> needRegisterMoreThanOne(x);
+		apply evalRegister(x : OpNot)		-> needRegisterMoreThanOne(x);
+		apply evalRegister(x : OpBNot)	-> needRegisterMoreThanOne(x);
+		apply evalRegister(OpCast(regs typ typFrom exp)) 	->
+		{
+			let $regs  = evalRegister(exp);
+			if(fn:Not(getUsedRegisters($regs)))fn:bind($regs,setUsedRegisters($regs,1));
+			fn:setValue(regs,$regs);
+			return regs;
+		}
+
+		apply evalRegister(OpNew(regs typ rank))  			->
+		{
+			let $regs  = 0;
+			if(rank) fn:bind($regs,evalRegister(rank));
+			if(fn:Not(getUsedRegisters($regs)))fn:bind($regs,1);
+			fn:setValue(regs,$regs);
+			return regs;
+		}
+		apply evalRegister(OpDelete(regs typ exp))			->
+		{
+			let $regs  = evalRegister(exp);
+			fn:setValue(regs,$regs);
+			return regs;
+			//应该是表达式终结点
+		}
+		//中缀操作符
+		apply evalRegister(OpBinary(regs  typ op lhs  rhs)) ->
+		{
+			//变量和符号常量在操作的左边会占用寄存器。
+			//如果是变量并且操作符是'='，也不需要占用寄存器。
+			//如果中间使用借用寄存器，总寄存器需求是否会减少?
+			//会减少，比如最后操作是'+='，rhs需要一个寄存器，左边如果借用则不需要寄存器，这样只需要一个寄存器，而不是两个。
+			//采用借用寄存器会增加编程的灵活性。
+			if(fn:Not(IsAsnOp(op)))
+			{
+				if(fn:Or(IsNodeName(lhs,"OpLiteral"), IsNodeName(lhs,"OpItem")))
+				{
+					fn:setValue(fn:child(lhs),setUsedRegisters(fn:child(lhs),1));
+				}
+			}
+				
+			let $regs1 = evalRegister(lhs);
+			let $regs2 = evalRegister(rhs);
+			
+			fn:bind($regs1, mergeRegister(regs,$regs1,$regs2));
+			fn:setValue(regs,$regs1);
+			return regs;
+		}
+		
+		//函数
+		apply evalRegister(OpMethod(regs typ base)) ->
+		{
+			let $regs = fn:branch(IsNodeName(base,"OpNill"),0,evalRegister(base));
+			fn:setValue(regs,$regs);
+			return regs;
+		}
+			
+		//函数调用
+		apply evalRegister(OpCall(regs typ mt args)) ->
+		{
+			//函数调用取参数需要寄存器的最大值.
+			let $argm = evalRegister(mt);
+			let $used = 0;
+			let $rega =0;
+			
+			let $regs = 0;
+			for $t in args
+			{
+				fn:bind($rega,evalRegister($t));
+				fn:bind($regs,mergeRegister($regs, $regs,$rega));
+			}
+			fn:bind($regs,mergeRegister($regs,$argm,$regs));			
+		
+			let $spec = fn:symGetMethodSpec(TypeOfTerm(mt));
+			
+			fn:setValue(regs,$regs);
+			return regs;
+		}
+		
+		//opnill
+		apply IsLValueItem(x);
+		apply SetRValueItem(x);
+		
+		apply ImmValue(lt) 	-> fn:node(ImmValue,lt);
+		apply Value(typ regs x : Address) ->
+		{
+			if(getUsedRegisters(regs))
+			{
+				if(IsDoubleType(typ))
+				{
+					MOV(sXMM(getUsedRegisters(regs)),x);
+					return sXMM(getUsedRegisters(regs));
+				}
+				else
+				{
+					MOV(sRegister(getUsedRegisters(regs)),x);
+					return sRegister(getUsedRegisters(regs));
+				}
+			}else
+				x;
+		}
+		apply Value(typ regs r : Register) -> 
+		{
+			if(getUsedRegisters(regs))
+			{
+				if(IsDoubleType(typ))
+				{
+					MOV(sXMM(getUsedRegisters(regs)),Address(r));
+					return sXMM(getUsedRegisters(regs));
+				}
+				else
+				{
+					MOV(sRegister(getUsedRegisters(regs)),Address(r));
+					return sRegister(getUsedRegisters(regs));
+				}
+			}else
+			{
+				MOV(r,Address(r));
+					return r;
+			}
+		}
+			
+		apply RValue(x : Address) := x;
+		apply RValue(x : Register) := x;
+		apply RValue(x : XMM) := x;
+		apply RValue( x: ImmValue regs typ) ->
+		{
+			if(getUsedRegisters(regs))
+			{
+				if(IsDoubleType(typ)) 
+				{
+					MOV(sXMM(getUsedRegisters(regs)), Address(Imm(fn:symAddReal(fn:child(x)))));
+					return sXMM(getUsedRegisters(regs));
+				}
+				else
+				{
+					MOV(sRegister(getUsedRegisters(regs)), Imm(fn:child(x)));
+					return sRegister(getUsedRegisters(regs));
+				}
+			}else
+			{
+				if(IsDoubleType(typ)) 
+				{
+					return Address(Imm(fn:symAddReal(fn:child(x))));
+				}
+				else
+					return Imm(fn:child(x));
+			}
+		}
+		apply RValue(x : Address regs typ)-> 
+		{
+			if(getUsedRegisters(regs))
+			{
+				if(IsDoubleType(typ)) 
+				{
+					MOV(sXMM(getUsedRegisters(regs)), x);
+					return sXMM(getUsedRegisters(regs));
+				}
+				else
+				{
+					MOV(sRegister(getUsedRegisters(regs)), x);
+					return sRegister(getUsedRegisters(regs));
+				}
+			}else
+				return x;
+		}
+		apply LValue(x : Address regs typ)-> 
+		{
+			if(getUsedRegisters(regs))
+			{
+				LEA(sRegister(getUsedRegisters(regs)), x);
+				return sRegister(getUsedRegisters(regs));
+			}else
+				return x;
+		}
+		apply LMove(typ regs r1) ->
+		{
+			if(getUsedRegisters(regs))
+			{
+				if(IsAddressNode(r1))
+					LEA(sRegister(getUsedRegisters(regs)),r1);
+				else
+					MOV(sRegister(getUsedRegisters(regs)),r1);
+				return sRegister(getUsedRegisters(regs));
+			}
+			return r1;
+		}
+		apply RMove(typ regs r1) ->
+		{
+			if(getUsedRegisters(regs))
+			{
+				if(fn:Eq(typ,T("double")))
+				{
+					MOV(sXMM(getUsedRegisters(regs)),r1);
+					return sXMM(getUsedRegisters(regs));
+				}
+				else
+				{
+					MOV(sRegister(getUsedRegisters(regs)),r1);
+					return sRegister(getUsedRegisters(regs));
+				}
+			}
+			return r1;
+		}
+		
+		apply _GetRegister(regs typ) 			-> sRegister(getUsedRegisters(regs));
+		apply _GetRegister(regs "double")		-> sXMM(getUsedRegisters(regs));
+		apply GetRegister(regs)					-> sRegister(getUsedRegisters(regs));
+		apply GetRegister(regs typ)				-> _GetRegister(regs,fn:symGetTermName(typ));
+		apply _GetReserveRegister(typ)			-> bRegister(1);
+		apply _GetReserveRegister("double")	-> bXMM(1);
+		apply GetReserveRegister(typ)			-> _GetReserveRegister(fn:symGetTermName(typ));
+
+		
+		//代码生成
+
+		apply RValue(OpNill(regs));
+		//literal
+		apply RValue(OpLiteral(regs typ lt)) 				-> RValue(ImmValue(lt),regs,typ);
+		//item
+		apply LValue(OpItem(regs typ hitem))   			-> 
+		{
+			LValue(TermAddress(hitem), regs,typ);
+		}
+		
+		apply RValue(OpItem(regs typ hitem)) 			->
+		{
+			if(IsStructItem(typ))
+			{
+				if(fn:Band(fn:symGetTermSpec(hitem), type_spec("ref")))
+				{
+					return RValue(TermAddress(hitem), regs,typ);
+				}
+				else
+				{
+					if(getUsedRegisters(regs))
+						return  LValue(TermAddress(hitem), regs,typ);
+					else
+					{
+						return LValue(TermAddress(hitem), 1,typ);
+					}
+				}
+			}
+			else
+				return RValue(TermAddress(hitem), regs,typ);
+		}
+		
+		apply RValue(OpElement(regs typ rank exp idx)) ->
+		{
+			let $r0 = GetRegister(regs);
+			if(rank)
+				LMove(0,regs,LValue(exp));
+			else
+				MOV($r0,RValue(exp)); 
+			let $r1 = RValue(idx);
+			MOV(eax,$r1);
+			MUL(eax,Imm(fn:symGetTypeAllocSize(typ)));
+			ADD($r0,eax);
+			if(fn:Not(IsStructItem(typ)))MOV($r0,Address($r0));
+			return $r0;
+		}
+		apply LValue(OpElement(regs typ rank exp idx)) ->
+		{
+			let $r0 = GetRegister(regs);
+			if(rank)
+				LMove(0,regs,LValue(exp));
+			else
+				MOV($r0,RValue(exp)); 
+			let $r1 = RValue(idx);
+			MOV(eax,$r1);
+			MUL(eax,Imm(fn:symGetTypeAllocSize(typ)));
+			ADD($r0,eax);
+			return $r0;
+		}
+			
+		//this
+		apply RValue(OpThis(regs typ)) -> ecx();
+		//field
+		apply LValue(OpField(regs typ base hitem)) ->
+		{
+			//获得指向field的指针
+			let $r0 = GetRegister(regs);
+			let $offset = fn:symGetOffsetOfField(fn:symGetParent(hitem),hitem);
+			let $r = RValue(base);	
+			MOV($r0,$r); 
+			ADD($r0,Imm($offset));
+			return $r0;
+		}
+		//field
+		apply RValue(OpField(regs typ base hitem)) ->
+		{
+			let $r0 = GetRegister(regs);//GetRegister(regs,typ);
+			let $r = RValue(base);	
+			if(fn:symIsOleItem(hitem))
+			{
+				//bug: 如ole返回浮点字段会出错.
+				//ole field
+				let $type = fn:symGetTermType(hitem);
+				let $size = fn:symGetTypeTermFrameSize(hitem);
+				//push Ret
+				MOV(ebx,$r);
+				
+				SUB(esp,Imm($size));
+				MOV(eax, esp);	//Address(ebp,Imm(fn:Neg(0x80))));
+				MOV(Address(eax),Imm(0));
+				PUSH(eax);
+		
+				let $nmethod = fn:symGetOlePropGet(hitem);
+				//push this
+				MOV(ecx,ebx);
+				PUSH(ecx);
+				//find vtable
+				MOV(eax,Address(ecx));
+				ADD(eax,Imm(fn:Mul(4,fn:Dec($nmethod))));
+				MOV(eax,Address(eax));
+				CALL(eax);
+				if(fn:Eq($type,T("variant")))
+				{
+					let $vt_r8 = 5;
+					XOR(eax,eax);
+					MOV(ebx,esp);
+					MOV(ax,Address(ebx));
+					//CMP(eax,Imm($vt_r8));
+					//JCC(Label(labelBreakDouble),cNotEqual);
+					MOV(eax,Address(ebx,Imm(8)));
+					//MOVD(xmm0,Address(ebx,8));
+					//LABEL(labelBreakDouble);
+				}else
+				{
+					MOV(eax,esp);
+					MOV(eax,Address(eax));//Address(ebp,Imm(fn:Neg(0x80))));
+				}
+				ADD(esp,Imm($size));
+				MOV($r0,eax);
+				
+				MOV(ecx,Address(ebp,Imm(fn:Neg(4))));
+				return $r0;
+			}else
+			{
+				let $offset = fn:symGetOffsetOfField(fn:symGetParent(hitem),hitem);
+				MOV($r0,$r); 
+				ADD($r0,Imm($offset));
+				if(IsStructItem(typ))
+				{
+					if(fn:Band(fn:symGetTermSpec(hitem), type_spec("ref")))
+					{
+						return Value(typ,regs,$r0);
+					}else
+						return $r0;
+				}
+				else
+				{
+					return Value(typ,regs,$r0);
+				}
+			}
+		}
+		
+		//new
+		apply RValue(OpNew(regs typ rank)) ->
+		{
+			let $r0 = GetRegister(regs);
+			if(fn:symIsOleItem(typ))
+			{
+				PUSH(Imm(fn:symGetOleTypeInfo(typ)));
+				PUSH(Imm(fn:symGetTypeOleName(typ)));
+				MOV(eax,Fct(OleCreateInstanceEx));
+				CALL(eax);
+				ADD(esp,Imm(8));
+			}else
+			{
+				if(rank)
+				{
+					if(IsNodeName(rank,"OpLiteral"))
+					{
+						fn:trace(ValueOfLiteral(rank));
+						PUSH(Imm(fn:Mul(fn:symGetTypeAllocSize(typ),ValueOfLiteral(rank))));
+					}
+					else
+					{
+						RValue(rank);
+						MOV(eax,Imm(fn:symGetTypeAllocSize(typ)));
+						MUL(eax,$r0);
+						PUSH(eax);
+					}
+				}else
+					PUSH(Imm(fn:symGetTypeAllocSize(typ)));
+				PUSH(Imm(1));
+				MOV(eax,Fct(calloc));
+				CALL(eax);
+				ADD(esp,Imm(8));
+				if(IsClassItem(typ))
+				{
+					MOV(Adr(eax),Imm(typ)); //set owner
+				}
+				//BR();
+			}
+			MOV(ecx,Address(ebp,Imm(fn:Neg(4))));
+			MOV($r0,eax);
+			return $r0;
+		}
+		//delete
+		apply RValue(OpDelete(regs typ exp)) ->
+		{
+			let $r = RValue(exp);
+			PUSH($r);
+			MOV(eax,Fct(free));
+			CALL(eax);
+			ADD(esp,Imm(4));
+			MOV(ecx,Address(ebp,Imm(fn:Neg(4))));
+		}
+		
+		//后缀操作符
+		//'++'
+		apply RValue(OpInc(regs typ exp))		   		->
+		{
+			let $r0 = GetRegister(regs,typ);
+			let $r = LValue(exp);
+			if(IsSameRegister($r0,$r))
+			{
+				MOV(ebx,Adr($r));
+				INC(Adr($r));
+				MOV($r0,ebx);
+			}else
+			{
+				INC(Adr($r));
+				MOV($r0,ebx);
+			}
+			return $r0;
+		}
+			
+		//'--'		
+		apply RValue(OpDec(regs typ exp))		   		->
+		{
+			let $r0 = GetRegister(regs,typ);
+			let $r = LValue(exp);
+			if(IsSameRegister($r0,$r))
+			{
+				MOV(ebx,Adr($r));
+				DEC(Adr($r));
+				MOV($r0,ebx);
+			}else
+			{
+				DEC(Adr($r));
+				MOV($r0,ebx);
+			}
+			return $r0;
+		}
+			
+		//前缀操作符
+		apply LValue(OpUInc(regs typ exp))	->
+		{
+			let $r0 = GetRegister(regs);
+			let $r = LValue(exp);
+			INC(Adr($r));
+			PtrTo($r0,$r);	
+			return $r0;
+		}
+			
+		apply RValue(OpUInc(regs typ exp))	->
+		{
+			let $r0 = GetRegister(regs,typ);
+			let $r   = LValue(exp);
+			INC(Adr($r));
+			MOV($r0,Adr($r));
+			return $r0;
+		}
+		
+		apply LValue(OpUDec(regs typ exp))	->
+		{
+			let $r0 = GetRegister(regs);
+			let $r = LValue(exp);
+			DEC(Adr($r));
+			PtrTo($r0,$r);	
+			return $r0;
+		}
+		apply RValue(OpUDec(regs typ exp))	->
+		{
+			let $r0 = GetRegister(regs,typ);
+			let $r = LValue(exp);
+			DEC(Adr($r));
+			MOV($r0,$r);	
+			return $r0;
+		}
+
+		apply RValue(OpNeg(regs typ exp))	->
+		{
+			let $r0 = GetRegister(regs,typ);
+			let $r = RValue(exp);
+			
+			MOV($r0,$r);
+			NEG($r0);
+			return $r0;
+		}
+
+		apply RValue(OpNot(regs typ exp))		->
+		{
+			let $r0 = GetRegister(regs,typ);
+			let $r = RValue(exp);
+			
+			//bug
+			MOV(ebx,$r);
+			XOR($r0,$r0);
+			CMP(ebx,Imm(0));
+			JCC(Label(label_false),cNotEqual);
+			MOV($r0,Imm(1));
+			LABEL(label_false);
+
+			return $r0;
+		}
+		
+		apply genOpCast(regs typ typFrom r) ->
+		{
+			let $r0 = GetRegister(regs,typ);
+			let $r = r;
+			
+			if(IsDoubleType(typ))
+			{
+				if(IsInteger(typFrom))
+				{
+					//整数转化为浮点数
+					if(IsImmNode($r))
+					{
+						MOV(ebx,$r);
+						CVTSI2SD($r0,ebx);
+					}else
+						CVTSI2SD($r0,$r);
+				}else
+					MOV($r0,$r);
+			}else if(IsInteger(typ))
+			{
+				if(IsDoubleType(typFrom))
+				{
+					//浮点数转化为整数
+					CVTSD2SI($r0,$r);
+				}else
+					MOV($r0,$r);
+			}else
+			{
+				if(fn:And(IsClassItem(typ),IsClassItem(typFrom)))
+				{
+					if(fn:And(fn:symIsOleItem(typ),fn:symIsOleItem(typFrom)))
+					{
+						PUSH(Imm(typ));
+						PUSH(Imm(typFrom));
+						PUSH($r);
+						PUSH(Imm(fn:symGetContext()));
+						MOV(eax,Fct(AutoTransOleObject));
+						CALL(eax);
+						ADD(esp,Imm(16));
+						fn:bind($r,eax);
+					}
+				}
+				//fn:bind($r0,$r);
+				MOV($r0,$r);
+			}
+			return $r0;			
+		}
+		
+		apply RValue(OpCast(regs typ typFrom exp)) ->
+		{
+			return genOpCast(regs,typ,typFrom, RValue(exp));
+		}
+			
+		apply LValue(OpCast(regs typ typFrom exp)) ->
+		{
+			let $r0 = GetRegister(regs);
+			let $r = RValue(exp);
+			
+			if(IsDoubleType(typ))
+			{
+				if(IsInteger(typFrom))
+				{
+					//整数转化为浮点数
+					if(IsNodeName($r,"Imm"))
+					{
+						MOV(ebx,$r);
+						CVTSI2SD($r0,ebx);
+					}else
+						CVTSI2SD($r0,$r);
+				}else
+					MOV($r0,$r);
+			}else if(IsInteger(typ))
+			{
+				if(IsDoubleType(typFrom))
+				{
+					//浮点数转化为整数
+					CVTSD2SI($r0,$r);
+				}else
+					MOV($r0,$r);
+			}else
+			{
+				//fn:bind($r0,$r);
+				MOV($r0,$r);
+			}
+			return $r0;
+		}
+			
+		apply RValue(OpBNot(regs typ exp))	->
+		{
+			let $r0 = GetRegister(regs,typ);
+			let $r = RValue(exp);
+			NOT($r);
+			MOV($r0,$r);
+			return $r0;
+		}
+		
+		apply RValue(OpBinary(regs typ op  lhs rhs)) 	->
+		{
+			let $olefield = 0;
+			let $hitem = 0;
+			//ole supper
+			if(fn:And(IsAssignOp(op),IsNodeName(lhs,"OpField")))
+			{
+				fn:bind($hitem,fn:ChildNext(lhs,3));
+				if(fn:symIsOleItem($hitem)) fn:bind($olefield,1);
+			}
+
+			let $regs1 = RegsOfTerm(lhs);
+			let $regs2 = RegsOfTerm(rhs);
+			let $float = 0;
+				
+			if(IsDoubleType(TypeOfTerm(lhs)))
+				fn:bind($float,1);
+			else if(IsDoubleType(TypeOfTerm(rhs)))
+				fn:bind($float,1);
+			
+			let $rhs = 0;
+			let $lhs = 0;
+			let $r0 = 0;
+			if(fn:Gte(getUsedRegisters($regs2),getUsedRegisters($regs1)))
+			{
+				fn:bind($rhs,RMove(TypeOfTerm(rhs),regs, RValue(rhs)));
+				if($olefield)
+					fn:bind($lhs,RValue( fn:ChildNext(lhs,2)));
+				else
+				{
+					fn:bind($lhs,fn:branch(IsAssignOp(op) , LValue(lhs), RValue(lhs)));
+				}
+				fn:bind($r0,$rhs);
+			}
+			else
+			{
+				if($olefield)
+					fn:bind($lhs,RValue(fn:ChildNext(lhs,2)));
+				else
+					fn:bind($lhs,fn:branch(IsAssignOp(op),
+									LMove(/*TypeOfTerm(lhs)*/T("int"),regs,LValue(lhs)),
+									RMove(TypeOfTerm(lhs),regs,RValue(lhs))));
+				fn:bind($rhs,RValue(rhs));
+				fn:bind($r0,$lhs);
+			}
+			
+			if($olefield)
+			{
+				//ole field
+				let $type = fn:symGetTermType($hitem);
+				MOV(ebx,$lhs);
+				PUSH($rhs);
+				let $nmethod = fn:symGetOlePropPut($hitem);
+				//push this
+				MOV(ecx,ebx);
+				PUSH(ecx);
+				//find vtable
+				MOV(eax,Address(ecx));
+				ADD(eax,Imm(fn:Mul(4,fn:Dec($nmethod))));
+				MOV(eax,Address(eax));
+				CALL(eax);
+				return eax();
+			}
+
+			if(IsAssignOp(op))
+			{
+				if(IsAsnOp(op))
+				{
+					Store(typ,$lhs,$rhs);
+				}
+				else if(fn:And(fn:Eq(op,'+='),fn:Eq(typ,T("string"))))
+				{
+					//fix: eax冲突 
+					PtrTo(ebx,$lhs);
+					PUSH(ebx);
+					
+					PUSH($rhs);
+					PUSH(Adr($lhs));
+					MOV(eax,Fct(StringAdd));
+					CALL(eax);
+					POP(ebx);
+					MOV(Adr(ebx),eax);
+					//restore this
+					MOV(ecx,Address(ebp,Imm(fn:Neg(4))));
+				}
+				else
+				{
+					//bug 这样可能占用了其它表达式的值
+					let $r = Value(typ,fn:Inc(regs),$lhs);
+					AsnMathOp(op,$r,$rhs);
+					Store(typ,$lhs,$r);
+				}
+			}else
+			{
+				if(fn:Eq(TypeOfTerm(lhs),T("string")))
+				{
+					if(fn:Eq(op,'+'))
+					{
+						PUSH($rhs);
+						PUSH($lhs);
+						MOV(eax,Fct(StringAdd));
+						CALL(eax);
+					}else if(IsCompOp(op))
+					{
+						PUSH($rhs);
+						PUSH($lhs);
+						MOV(eax,Fct(wcscmp));
+						CALL(eax);
+						ADD(esp,Imm(8));
+						EmitOp(op,eax,Imm(0));
+					}
+					MOV($r0,eax);
+					MOV(ecx,Address(ebp,Imm(fn:Neg(4))));
+				}else
+				{
+					EmitOp(op, $lhs,$rhs);
+					if(fn:Not(IsCompOp(op)))MOV($r0,$lhs);
+				}
+				if(IsCompOp(op))
+				{
+					fn:bind($r0,GetRegister(regs));
+					MOV($r0,eax);
+				}
+			}
+			return $r0;
+		}
+		
+		//函数
+		apply RValue(OpMethod(regs ty base)) ->
+		{
+			let $fn = ty;
+			let $fnspec = fn:symGetMethodSpec($fn);
+			let $addr = fn:symGetMethodAddr(ty);
+			
+			
+			if($addr)
+			{
+				MOV(eax,Imm($addr));
+			}else
+			{
+				PUSH(ecx);
+				if(fn:Band($fnspec,type_spec("native")))
+				{
+					//get extern address by used LoadProcAddress
+					PUSH(Imm(fn:symGetMethodNativeAlias($fn)));
+					PUSH(Imm(fn:symGetMethodNativeFrom($fn)));
+					MOV(eax,Fct(LoadProcAddress));
+					CALL(eax);
+					ADD(esp,Imm(8));
+				}else
+				{
+					//重新获取函数地址
+					PUSH(Imm($fn));
+					PUSH(Imm(fn:symGetSymTable()));
+					MOV(eax,Fct(GetMethodAddr));
+					CALL(eax);
+				}
+				POP(ecx);
+				//MOV(ecx,Address(ebp,Imm(fn:Neg(4))));
+			}
+			return eax();
+		}	
+
+		//函数调用
+		apply RValue(OpCall(regs typ mt args) )->
+		{
+			//fn:print("--call--",regs);
+			let $r0 = GetRegister(regs,typ);
+			let $fn = TypeOfTerm(mt);
+			let $reg1 = RegsOfTerm(mt);
+			
+			//断点函数
+			if(fn:Eq(fn:symGetTermName($fn),"debugbreak"))
+			{
+				BR();
+				return Imm(0);
+			}
+				
+			let $nargs = fn:size(args);
+			let $cargs = fn:symGetMethodParamCount($fn);
+			let $i = 0;
+			let $argsize = 0;
+			
+			//这些对象的第一个参数是本身的值
+			if(IsPrimaryTypeMethod($fn))
+			{
+				fn:bind($cargs,fn:Dec($cargs));
+				if(IsDoubleTypeMethod($fn))
+					fn:bind($argsize,8);
+				else
+					fn:bind($argsize,4);
+			}
+			
+			let $rettype = fn:symGetTermType($fn);
+			let $fsize = fn:symGetTypeTermFrameSize($fn);
+			let $fspec = fn:symGetMethodSpec($fn);
+			
+			//对于ole对象函数调用，预留空间用于保存返回变量
+			if(fn:symIsOleItem($fn))
+			{
+				//fn:print("\nreturn: ",fn:symGetTermName($rettype)," size:",$fsize);
+				if($fsize)
+				{
+					//push Ret
+					SUB(esp,Imm($fsize));
+					MOV(eax,esp); 
+					MOV(Address(eax),Imm(0));
+					PUSH(eax);
+				}
+			}	
+			
+			//如返回结构，则需在栈上创建一个结构。如结构被另一变量接收，应该直接使用该变量的地址
+			else if(fn:And($rettype, IsStructItem($rettype)))
+			{
+				//如果只是返回引用指针，则不需要。
+				if(fn:Not(fn:Band($fspec, type_spec("ref"))))
+				{
+					SUB(esp,Imm($fsize));
+					fn:bind($argsize,fn:Add($argsize,Imm($fsize)));
+					
+					MOV(ebx,ebp);
+					PUSH(Address(ebx));
+					fn:bind($argsize,fn:Add($argsize,4));
+				}
+			}
+			//对于外部浮点运算,预留空间用于把浮点寄存器的数据转化为xmm数据.
+			 else if(fn:And($rettype,fn:Eq($rettype, T("double"))))
+			{
+				SUB(esp,Imm($fsize));
+			}
+
+			//缺省值入栈
+			while(fn:Gt($cargs , fn:Add($nargs,$i)))
+			{
+				let $hparam = fn:symGetMethodParamHandleByIndex($fn,fn:Sub($cargs,fn:Inc($i)));
+				let $typ 	 = 	fn:symGetTermType($hparam);
+				let $spec = 	fn:symGetParamSpec($hparam);
+				let $size  = 	fn:symGetTypeTermFrameSize($hparam);
+				PUSH(Imm(fn:symGetParamInitValue($hparam)));
+				fn:bind($argsize,fn:Add($argsize,$size));
+				fn:bind($size,fn:Sub($size,4));
+				while(fn:Gt($size,0))
+				{
+					PUSH(Imm(0));
+					fn:bind($size,fn:Sub($size,4));
+				}
+				fn:bind($i,fn:Inc($i));
+			}
+			
+			//参数入栈
+			let $fnspec = fn:symGetMethodSpec($fn);
+			for $t in args
+			{
+				let $hparam = fn:symGetMethodParamHandleByIndex($fn,fn:Sub($cargs,fn:Inc($i)));
+			
+				let $typ 		 = fn:symGetTermType($hparam);
+				let $spec 	 = fn:symGetParamSpec($hparam);
+				let $size 	 = fn:symGetTypeTermFrameSize($hparam);
+				
+				let $r 		= fn:branch(fn:And(fn:Band($spec, type_spec("ref")),fn:Not(IsStructItem($typ)))
+										,LValue($t),RValue($t));
+				let $type 	= TypeOfTerm($t);
+				
+				if(fn:Eq($typ,$type))
+				{
+					//如果参数是引用调用
+					//假定结构内部与外部一致。
+					if(fn:Band($spec, type_spec("ref")))
+					{
+						//bug:如果本身是引用类型，则应该求值
+						if(IsStructItem($typ))
+						{
+							PUSH($r);
+						}else
+						{
+							PtrTo(ebx,$r);
+							PUSH(ebx);
+						}
+					}
+					else
+					{
+						if(fn:Or(IsClassItem($typ),IsInterfaceItem($typ)))
+						{
+							if(NeedNativePtr($fnspec,$spec))
+							{
+								if(IsNativeClass($typ))
+								{
+									MOV(ebx,$r);
+									ADD(ebx,Imm(4));
+									MOV(ebx,Address(ebx));
+									PUSH(ebx);
+								}else
+									PUSH($r);
+							}else
+							{
+								PUSH($r);
+							}
+						}else
+							Push($typ,$r);
+					}
+				}else if(fn:Eq($typ,T("variant")))
+				{
+					PushVariant($type,$size,$r);
+				}else if(fn:Band($spec, type_spec("ref")))
+				{
+					//bug:如果本身是引用类型，则应该求值
+					if(IsStructItem($typ))
+					{
+						PUSH($r);
+					}else
+					{
+						PtrTo(ebx,$r);
+						PUSH(ebx);
+					}
+				}
+				else
+				{
+					//转换数据类型
+					genOpCast(1, $typ,$type,$r);
+					//可能是函数指针
+					Push($type, $r); 
+					//fn:throw(fn:Add("\n----need cast type at call " ,fn:symGetTermName($fn)));
+				}
+				fn:bind($argsize,fn:Add($argsize,$size));
+				fn:bind($i,fn:Inc($i));
+			}
+		
+			//判断是否需要this
+			//如果非静态函数，需要设置this
+			let $pThis = fn:branch(IsNodeName(mt,"OpMethod"), RValue(fn:ChildNext(mt, 2)) ,ecx());
+			if(fn:Not($pThis))fn:bind($pThis,ecx());
+			
+				
+			//primary object ptr
+			if(IsPrimaryTypeMethod($fn))
+			{
+				if(IsDoubleTypeMethod($fn))
+				{
+					Push(T("double"), $pThis);
+				}else
+					PUSH($pThis);
+			}
+			
+			//调用
+			if(fn:symIsOleItem($fn))
+			{
+				MOV(ecx,$pThis);
+				let $nmethod = fn:symGetOleMethod($fn);
+				PUSH(ecx);
+				//find vtable
+				MOV(eax,Address(ecx));
+				ADD(eax,Imm(fn:Mul(4,fn:Dec($nmethod))));
+				MOV(eax,Address(eax));
+				CALL(eax);
+				//bug
+				if(fn:Eq($rettype,T("variant")))
+				{
+					let $vt_r8 = 5;
+					XOR(eax,eax);
+					MOV(ebx,esp);
+					//MOV(eax,Address(ebx));
+					//CMP(eax,Imm($vt_r8));
+					//JCC(Label(labelBreakDouble),cNotEqual);
+					MOV(eax,Address(ebx,Imm(8)));
+					//MOVD(xmm0,Address(ebx,8));
+					//LABEL(labelBreakDouble);
+					
+				}else
+				{
+					if($fsize)
+					{
+						MOV(eax,esp);
+						MOV(eax,Address(eax));//Address(ebp,Imm(fn:Neg(0x80))));
+					}
+				}
+				if($fsize)ADD(esp,Imm($fsize));
+				MOV(ecx,Address(ebp,Imm(fn:Neg(4))));
+			}else
+			{
+
+				//设置this
+				if(fn:Not(fn:Band($fnspec,type_spec("static"))))
+				{
+					MOV(ecx,$pThis);
+					MOV(edx,ecx);
+					if(fn:Band($fnspec,type_spec("native")))
+					{
+						//提取本地指针
+						ADD(ecx,Imm(4));
+						MOV(ecx,Address(ecx));
+						CMP(ecx,Imm(0));
+						JCC(Label(label_chknativeptr),cNotEqual);
+						//空指针
+						PUSH(eax);
+						PUSH(Address(edx));
+						PUSH(Imm($fn));
+						PUSH(Imm($hmethod));
+						PUSH(Imm(fn:symGetContext()));
+						PUSH(Imm(3)); //errorcode
+						MOV(eax,Fct(WarnToCall));
+						CALL(eax);
+						ADD(esp,Imm(12));
+						XOR(ecx,ecx);
+						POP(eax);
+						LABEL(label_chknativeptr);
+					}
+				}
+
+				if(fn:Band($fnspec,type_spec("static")))
+				{
+					let $addr = 0; 
+					if(fn:Or(
+						fn:Band($fnspec,type_spec("static")),
+						fn:Not(fn:And(fn:Band($fnspec,type_spec("virtual")),
+											fn:Not(IsNativeMethod($fn))))))
+					{
+						fn:bind($addr,RValue(mt)); 
+					}
+					CALL($addr);
+					if(fn:Not(fn:Band($fnspec,type_spec("stdcall"))))
+						if($argsize) ADD(esp,Imm($argsize));
+				}else 
+				{//this call
+					if(fn:Band($fnspec,type_spec("stdcall")))
+						PUSH(ecx); //push this
+					if(fn:Band($fnspec,type_spec("virtual")))
+					{
+						if(fn:Not(IsNativeMethod($fn)))
+						{
+							PUSH(ecx); //save
+							//call FindMatchVirtualMethodAddr
+							PUSH(Imm($fn));
+							PUSH(Address(ecx)); //wc
+							PUSH(Imm(fn:symGetContext()));
+							MOV(eax,Fct(FindMatchVirtualMethodAddr));
+							CALL(eax);
+							ADD(esp,Imm(12));
+							POP(ecx); //restore
+							CALL(eax);
+						}else
+						{
+							let $addr = 0; 
+							if(fn:Or(
+								fn:Band($fnspec,type_spec("static")),
+								fn:Not(fn:And(fn:Band($fnspec,type_spec("virtual")),
+													fn:Not(IsNativeMethod($fn))))))
+							{
+								fn:bind($addr,RValue(mt)); 
+							}
+							CALL($addr);	
+						}
+					}else
+					{
+						let $addr = 0; 
+						if(fn:Or(
+							fn:Band($fnspec,type_spec("static")),
+							fn:Not(fn:And(fn:Band($fnspec,type_spec("virtual")),
+												fn:Not(IsNativeMethod($fn))))))
+						{
+							fn:bind($addr,RValue(mt)); 
+						}
+						CALL($addr);
+					}
+				}
+				if(fn:Not(fn:Band(fn:symGetMethodSpec($hmethod),type_spec("static"))))
+					MOV(ecx,Address(ebp,Imm(fn:Neg(4))));
+			}
+
+			//如返回结构，则退出结构。
+			 if(fn:And($rettype,IsStructItem($rettype)))
+			{
+				ADD(esp,Imm($fsize));
+				return eax();
+			}
+			
+			//如返回浮点数，则需要判断是否为外部函数，如外部函数则在浮点寄存器上，安全函数则在xmm寄存器中。
+			else if(fn:And($rettype,IsDoubleType($rettype)))
+			{
+				if(fn:Band($fnspec,type_spec("native")))
+				{
+					//从浮点寄存器中取数据
+					ADD(esp,Imm($fsize));
+					MOV(ebx,esp);
+					FSTP(Address(ebx));
+					MOV(xmm0,Address(ebx));
+					ADD(esp,Imm(8));
+				}
+				return xmm0();
+			}
+			
+			//其他则假定在eax中	
+			//如果本地函数返回本地类对象，则生成类对象。
+			else if(IsNativeMethod($fn))
+			{
+				if(IsNativeClass($rettype))
+				{
+					//新建类对象
+					MOV(esi,eax); //会不会有冲突
+					
+					//判断是否为空指针
+					CMP(eax,Imm(0));
+					JCC(Label(label_chknativeptr1),cNotEqual);
+					//空指针
+					PUSH(eax);
+					PUSH(Imm(0)); //type
+					PUSH(Imm($fn));
+					PUSH(Imm($hmethod));
+					PUSH(Imm(fn:symGetContext()));
+					PUSH(Imm(4)); //errorcode return nill ptr
+					MOV(eax,Fct(WarnToCall));
+					CALL(eax);
+					ADD(esp,Imm(12));
+					POP(eax);
+					LABEL(label_chknativeptr1);
+					
+					PUSH(Imm(fn:symGetTypeAllocSize($rettype)));
+					MOV(eax,Fct(alloc));
+					CALL(eax);
+					MOV(ecx,Address(ebp,Imm(fn:Neg(4))));
+					ADD(esp,Imm(4));
+					//设置本地指针
+					MOV(ebx,eax);
+					MOV(Address(ebx),Imm($rettype));
+					ADD(ebx,Imm(4));
+					MOV(Address(ebx),esi);
+				}
+			}
+			return eax();
+		}
+		apply RValue(OpExprStmt(exp))-> 	RValue(exp);
+		apply RValue(';');
+				
+		//抽象PCODE
+		//处理句子
+		//处理表达式
+		/*
+		//表达式语句
+		apply proc-node( x: OpExprStmt) -> evalRegisterAndGen(x);
+		//主项
+		apply proc-node(OpNill());			->evalRegisterAndGen(x) ;
+		apply proc-node(x:OpLiteral)		->evalRegisterAndGen(x) ;
+		apply	proc-node(x:OpItem)		->evalRegisterAndGen(x) ;
+		apply	proc-node(OpThis)			->evalRegisterAndGen(x) ;
+		//后缀操作符
+		apply proc-node(x:OpField) 		->evalRegisterAndGen(x) ;
+		apply proc-node(x:OpElement)  	->evalRegisterAndGen(x) ;
+		apply proc-node(x:OpInc)			->evalRegisterAndGen(x) ;
+		apply proc-node(x:OpDec) 		->evalRegisterAndGen(x) ;
+		//函数调用
+		apply proc-node(x: OpCall) 		->evalRegisterAndGen(x) ;
+
+		//前缀操作符
+		apply proc-node(x: OpUInc) 		->evalRegisterAndGen(x) ;
+		apply proc-node(x: OpUInc)		->evalRegisterAndGen(x) ;
+		apply proc-node(x: OpNeg)		->evalRegisterAndGen(x) ;
+		apply proc-node(x: OpNew)		->evalRegisterAndGen(x) ;
+		apply proc-node(x: OpDelete)	->evalRegisterAndGen(x) ;
+		apply proc-node(x: OpNot)		->evalRegisterAndGen(x) ;
+		apply proc-node(x: OpBNot)		->evalRegisterAndGen(x) ;
+		//中缀操作符
+		apply proc-node(x: OpBinary) 	->evalRegisterAndGen(x) ;
+		*/
+		
+		apply proc-node(expterm) ->
+		{
+			evalRegister(expterm);
+			RValue(expterm);
+		}
+		
+		apply proc-node(x : OpCompStmt) ->
+		{
+			for $t in x 
+				if(fn:Neq(fn:name($t),fn:hash("OpNill")))proc-node($t);
+		}
+			
+		apply proc-node(OpIf(cnd tbody fbody)) ->
+		{
+			//寄存器分配
+			evalRegister(cnd);
+			let $r = RValue(cnd);
+			MOV(eax,$r);
+			CMP(eax,Imm(0));
+			JCC(Label(labelIfFalse),cEqual);
+			proc-node(tbody);
+			if(fbody) JMP(Label(labelIfNext));
+			LABEL(labelIfFalse);
+			if(fbody) proc-node(fbody);
+			LABEL(labelIfNext);
+		}
+		apply proc-node(OpFor(init cnd pinc body))	->
+		{
+			proc-node(init);
+			LABEL(label_cond);
+			evalRegister(cnd);
+			let $r = RValue(cnd);
+			MOV(eax,$r);
+			CMP(eax,Imm(0));
+			JCC(Label(label_break),cEqual);
+			
+			fn:push($continuelabels,Label(label_continue));
+			fn:push($breaklabels,Label(label_break));
+			proc-node(body);
+			fn:pop($continuelabels);
+			fn:pop($breaklabels);
+			
+			fn:clearRegister();
+			LABEL(label_continue);
+			proc-node(pinc);
+			
+			JMP(Label(label_cond));
+			LABEL(label_break);			
+		}
+		apply proc-node(OpWhile(cnd body))  ->
+		{
+			LABEL(label_continue);
+			evalRegister(cnd);
+			let $r = RValue(cnd);
+			MOV(eax,$r);
+			CMP(eax,Imm(0));
+			JCC(Label(label_break),cEqual);
+			
+			fn:push($continuelabels,Label(label_continue));
+			fn:push($breaklabels,Label(label_break));
+			proc-node(body);
+			fn:pop($continuelabels);
+			fn:pop($breaklabels);
+			
+			JMP(Label(label_continue));
+			LABEL(label_break);	
+		}
+		apply proc-node(OpUntil(cnd body)) ->
+		{
+			LABEL(do_start);
+			
+			fn:push($continuelabels,Label(label_continue));
+			fn:push($breaklabels,Label(label_break));
+			proc-node(body);
+			fn:pop($continuelabels);
+			fn:pop($breaklabels);
+			
+			fn:clearRegister();
+			LABEL(label_continue);
+			evalRegister(cnd);
+			let $r = RValue(cnd);
+			MOV(eax,$r);
+			CMP(eax,Imm(0));
+			JCC(Label(do_start),cNotEqual);
+			LABEL(label_break);
+		}
+		apply proc-node(OpReturn()) ->JMP($retlabel);
+		apply proc-node(OpReturn(exp)) ->
+		{
+			if(fn:Not(IsNodeName(exp,"OpNill")))
+			{
+				let $r = proc-node(exp);
+				/*if(IsRegisterNode($r))
+				{
+					if(maskIsLValue(fn:Child(exp,2))) MOV($r,Address($r));
+				}
+				*/
+				if(IsDoubleType(TypeOfTerm(exp)))
+					MOV(xmm0,$r);
+				else
+					MOV(eax,$r);
+			}
+			JMP($retlabel);
+		}
+		apply proc-node(OpContinue()) ->JMP(fn:top($continuelabels,0));
+		apply proc-node(OpBreak())	->JMP(fn:top($breaklabels,0));
+	]
+]

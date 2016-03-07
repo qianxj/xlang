@@ -1,0 +1,1089 @@
+use "wpp.xlang.vd"
+use "process.xlang.vd"
+use "wpp.processor.def.vd"
+use "wpp.processor.util.vd"
+use "wpp.processor.const.vd"
+use "wpp.processor.type.vd"
+use "wpp.ia32.processor.vd"
+
+//?apply-statement-if;
+//?declare-variant;
+//?class-define;
+//?function-define;
+//?apply-define;
+processor wpp_complier(node r)
+[
+	using processor wpp_ia32; 
+	
+	//寄存器分配
+	context context-method-regalloc
+	[
+		apply proc-function-define(Method(hmethod p body)) ->
+		{
+			fn:bind($hmethod,fn:symGetMethodHandle($htype,id));
+			//上下文语义
+			fn:context_enter_scope();
+
+			if(p)fn:apply(p);
+			if(body) fn:apply(body);
+			fn:bind($hmethod,0);
+			
+			fn:context_leave_scope();
+		}
+			
+		//生成参数上下文
+		apply proc-param-item(spec t n) -> fn:context_push_word(fn:symGetMethodParamHandle($hmethod,n),n);
+			
+		//处理函数体
+		apply proc-function-body(x) :=x ;
+
+		apply statement(x) := x;
+		
+		apply expression-statement(x ';') ->gen_expression(fn:apply(x),0);
+		apply expression(x)  := x;
+		apply assignment-expression (x) := x;
+		apply assignment-expression (x assignment-operator(o) y) -> binary-operator(o,x,y);
+		apply conditional-expression(x) := x;
+		apply binary-expression(x) := x;
+		apply binary-expression(x y) := x y;
+		//未处理变量块上下文
+		apply compound-statement('{' x '}') := x;
+		
+		apply cast-expression(x) := x;
+		
+		apply unary-expression(x) := x;
+		apply unary-expression(o x) := x;
+		
+		apply postfix-expression(x) := x;
+		apply postfix-expression( x y) := x y;
+		
+			
+		apply variant-name(x) := x;
+		apply field-item('.' x) := x;
+
+		apply function-argument('(' ')') ;
+		apply function-argument('(' argument-list(x) ')') :=x;
+		apply argument(x) ;
+		
+		apply primary-expression(x) -> fn:node(val,1,x);
+		apply primary-expression('(' exp ')' ) 	:= exp ; 
+		apply primary-expression(qualified-id(unqualified-id(x))) 		-> fn:node(id,1,x);
+		apply primary-expression(qualified-id(nest unqualified-id(x))) 	-> fn:node(id,1,x);
+		apply primary-expression(qualified-id(nest unqualified-id(x))) 	-> fn:node(owner,1);
+		
+		apply getRegs(node) ->  fn:child(node);
+		apply setReg(node) ->
+		{
+			var $lhs;
+			var $rhs;
+			fn:bind($lhs,fn:ChildNext(node,2));
+			fn:bind($rhs,fn:ChildNext(node,3));
+			if(fn:Gt(getRegs($lhs),getRegs($rhs)))
+				fn:setValue(fn:child(node),getRegs($lhs));
+			else if(fn:Lt(getRegs($lhs),getRegs($rhs)))
+				fn:setValue(fn:child(node),getRegs($rhs));
+			else
+				fn:setValue(fn:child(node),fn:Inc(getRegs($lhs)));
+		}
+		apply binary-operator(o x y ) 	->
+		{
+			var list $nodes;
+			var $node;
+			fn:push($nodes,fn:apply(x));
+			fn:push($nodes,fn:apply(y));
+			fn:bind($node,fn:node(op2,0,o,fn:top($nodes,1),fn:top($nodes,0)));
+			fn:pop($nodes);
+			fn:pop($nodes);
+			setReg($node);
+			return $node;
+		}
+		
+		apply gen_expression(val(regs v) b) ->
+		{
+			fn:print("\nmov r",fn:Inc(b),", ",v,";");
+		}
+		apply gen_expression(id(regs x) b) ->
+		{
+			fn:print("\nmov r",fn:Inc(b),", ", x,";");
+		}
+		apply gen_expression(owner(regs) b) ->
+		{
+			fn:print("\nmov r",fn:Inc(b),", self;");
+		}
+		apply gen_expression(op2(regs o lhs rhs) b) ->
+		{
+			//寄存器数量
+			var $regs;
+			let $regs = 2;
+			
+			if(fn:And(fn:Gte(getRegs(lhs),$regs),fn:Gte(getRegs(rhs),$regs)))
+			{
+				gen_expression(rhs, 0);
+				fn:print("\nmov t",regs, ", r",$regs,";");
+				gen_expression(lhs, 0);
+				fn:print("\nmov  r",fn:Dec($regs,1),", t",regs, ",");
+				fn:print("\n", Op(o), " r",$regs, ", r",fn:Dec($regs,1),";");
+			}
+			else if(fn:Lt(getRegs(lhs),getRegs(rhs)))
+			{
+				if(fn:Lt(regs,$regs))
+				{
+					gen_expression(rhs, fn:Add(b,fn:Sub(regs, getRegs(rhs))));
+					gen_expression(lhs, fn:Add(b,fn:Sub(fn:Dec(regs,1), getRegs(lhs))));
+					fn:print("\n", Op(o), " r",fn:Dec(fn:Add(regs,b),1), ", r",fn:Add(regs,b),";");
+					fn:print("\nmov ", " r",fn:Add(regs,b), ", r",fn:Dec(fn:Add(regs,b),1),";");
+				}else
+				{
+					gen_expression(rhs, fn:Add(b,fn:Sub(regs, getRegs(rhs))));
+					gen_expression(lhs, fn:Add(b,fn:Sub(fn:Dec($regs,1), getRegs(lhs))));
+					fn:print("\n", Op(o), " r",fn:Dec(fn:Add($regs,b),1), ", r",fn:Add($regs,b),";");
+					fn:print("\nmov ", " r",fn:Add($regs,b), ", r",fn:Dec(fn:Add($regs,b),1),";");
+				}
+			}
+			else
+			{
+				if(fn:Lt(regs,$regs))
+				{
+					gen_expression(lhs, fn:Add(b,fn:Sub(regs, getRegs(lhs))));
+					gen_expression(rhs, fn:Add(b,fn:Sub(fn:Dec(regs,1), getRegs(rhs))));
+					fn:print("\n", Op(o), " r",fn:Add(regs,b), ", r",fn:Dec(fn:Add(regs,b),1),";");
+				}else
+				{
+					gen_expression(lhs,fn:Add(b,fn:Sub(regs, getRegs(lhs))));
+					gen_expression(rhs, fn:Add(b,fn:Sub(fn:Dec($regs,1), getRegs(rhs))));
+					fn:print("\n", Op(o), " r",fn:Add($regs,b), ", r",fn:Dec(fn:Add($regs,b),1),";");
+				}
+			}
+		}
+	]
+		
+	/*
+		上下文context-method-gen生成类方法的汇编码。 
+	*/
+	
+	context context-method-gen 
+	[
+		apply proc-function-define(Method(hmethod p body)) ->
+		{
+			fn:bind($hmethod,hmethod);
+			//上下文语义
+			fn:context_enter_scope();
+			//处理参数
+			if(p)fn:apply(p);
+			//处理函数体
+			if(body) 
+			{
+				//生成代码
+				var $codepc;
+				fn:bind($codepc,fn:symGetCodePc());
+				fn:apply(body);
+				if(fn:Neq($codepc,fn:symGetCodePc()))
+				{
+					fn:symSetMethodAddr($hmethod,$codepc);
+					if($trace-object)fn:print(fn:Disassemble($hmethod));
+				}
+			}
+			fn:bind($hmethod, 0);
+			fn:context_leave_scope();
+		}
+
+		//处理函数
+		apply process-function-define(spec typ id  p nx  feture body) ->
+		{
+			fn:bind($type,fn:apply(typ));
+			fn:bind($name,id);
+			if($trace-object)fn:print("\n\t function ", fn:symGetTermName($type)," ",$name,'(' );
+			fn:bind($hmethod,fn:symGetMethodHandle($htype,$name));
+			
+			//上下文语义
+			//fn:context_push_word($hmethod, $name);
+			fn:context_enter_scope();
+			
+			fn:apply(p);
+			if($trace-object)fn:print(")"); 
+			if(body)
+			{
+				if($trace-object)fn:print("\n\t {");
+				
+				//生成代码
+				var $codepc;
+				fn:bind($codepc,fn:symGetCodePc());
+				fn:apply(body);
+				if(fn:Neq($codepc,fn:symGetCodePc()))
+				{
+					fn:symSetMethodAddr($hmethod,$codepc);
+					if($trace-object)fn:print(fn:Disassemble($hmethod));
+				}
+				if($trace-object)fn:print("\n\t }\n");
+			}else
+				if($trace-object)fn:print(";");
+			fn:bind($hmethod,0);
+			fn:context_leave_scope();
+		}	
+		
+		//生成参数上下文
+		apply proc-param-item(spec t n) ->
+		{
+			fn:context_push_word(fn:symGetMethodParamHandle($hmethod,n),n);
+		}
+		
+		//处理函数体
+		apply proc-function-body(x) ->
+		{
+			EnterFrame();
+			fn:bind($retlabel,Label(label_ret));
+			fn:apply(x);
+			
+			LABEL(label_ret);
+			fn:bind($spec,fn:symGetMethodSpec($hmethod));
+			if(fn:Band($spec,type_spec("static"))) //static
+			{
+				if(fn:Band($spec,type_spec("stdcall")))
+					LeaveFrame(fn:symGetMethodParamSize($hmethod));
+				else
+					LeaveFrame(0);
+			}else //thiscall
+			{
+				if(fn:Band($spec,type_spec("stdcall")))
+					LeaveFrame(fn:Add(fn:symGetMethodParamSize($hmethod),Imm(4)));
+				else
+					LeaveFrame(fn:symGetMethodParamSize($hmethod));
+			}
+		}
+	
+		//处理变量
+		apply proc_fieldorvariant(spec t arr n  init) ->
+		{
+			if($hmethod)
+			{
+				fn:bind($type,fn:apply(t));
+				fn:bind($name,n);
+				
+				var $hvar;
+				fn:bind($hvar,fn:symGetMethodVariantHandle($hmethod, n));		
+				
+				fn:context_push_word($hvar,$name);
+				if($trace-object)fn:print("\n\t \t", fn:symGetTermName($type)," ", $name,  ";");
+				
+				if(init)
+				{
+					fn:clearRegister();
+					fn:push($typs,handle-type($hvar));
+					fn:push($items,OffsetTerm(handle-kind($hvar),$hvar));
+					fn:apply(init);
+					
+					GenOp('=', fn:top($items,1),fn:top($items,0) );
+		
+					fn:bind($type,T(trans-type(o,fn:symGetTermName(fn:top($typs,0)),
+								fn:symGetTermName(fn:top($typs,1)))));
+					fn:pop($typs);
+				}
+			}
+		}	
+		
+		apply statement(x) ->
+		{
+			fn:clearRegister();
+			fn:apply(x);
+		}
+
+		apply Op(-)		:= "***";
+		apply Op('+') 		:= "add";
+		apply Op('-') 		:= "sub";
+		apply Op('*') 		:= "mul";
+		apply Op('/') 		:= "div";
+		apply Op('%') 		:= "mod";
+		apply Op('>>') 	:= "shr";
+		apply Op('<<') 	:= "shl";
+		apply Op('|') 		:= "bor";
+		apply Op('&') 		:= "band";
+		apply Op('^') 		:= "xor";
+		apply Op('~') 		:= "bnot";
+		apply Op('=') 		:= "asn";
+		apply Op('||') 		:= "or";
+		apply Op('&&') 	:= "and";
+		apply Op('>') 		:= "gt";
+		apply Op('>=') 	:= "gte";
+		apply Op('<') 		:= "lt";
+		apply Op('<=') 	:= "lte";
+		apply Op('==') 	:= "eq";
+		apply Op('!=') 		:= "neq";
+		apply Op('+=') 	:= "add-asn";
+		apply Op('-=') 	:= "sub-asn";
+		apply Op('*=') 	:= "mul-asn";
+		apply Op('/=') 	:= "div-asn";
+		apply Op('%=') 	:= "mod-asn";
+		apply Op('>>=') 	:= "shr-asn";
+		apply Op('<<=') 	:= "shl-asn";
+		apply Op('|=') 	:= "bor-asn";
+		apply Op('&=') 	:= "band-asn";
+		apply Op('^=') 	:= "xor-asn";
+		apply Op('~=') 	:= "bnot-asn";
+		
+		
+		apply Op('+' x y) 		-> ADD(x,y);
+		apply Op('-' x y) 		-> SUB(x,y);
+		apply Op('*' x y) 		-> IMUL(x,y);
+		apply Op('/' x y) 		-> IDIV(x,y);
+
+		/*
+		apply IF(- x y) 		:= x;
+		apply IF(0 x y) 		:= y;
+		apply IF(false x y) 	:= y;
+		
+			
+		apply AND(- -) := false;
+		apply AND(true true) := true;
+		
+		apply OR(- -) := true;
+		apply OR(false false) := false;
+		*/
+		
+		apply gen-rOp('<' x y) 		-> SET(x, y, cLess);
+		apply gen-rOp('<=' x y) 	-> SET(x, y, cLessEqual);
+		apply gen-rOp('>' x y) 		-> SET(x, y, cGreater);
+		apply gen-rOp('>=' x y) 	-> SET(x, y, cGreaterEqual);
+		apply gen-rOp('==' x y) 	-> SET(x, y, cEqual);
+		apply gen-rOp('!=' x y) 	-> SET(x, y, cNotEqual);
+		
+		apply gen-rOp('&' x y) 		-> AND(x,y);
+		apply gen-rOp('|' x y) 		-> OR(x, y);
+		apply gen-rOp('^' x y) 		-> XOR(x, y);
+		
+		apply gen-rOp('||' x y) 	-> OR(x, y);
+		apply gen-rOp('&&' x y) 	-> AND(x,y);
+		
+		apply gen-aOp(o x y) ->
+		{
+			MOV(sRegister(fn:askRegister()),x);
+			gen-rOp(o,sRegister(fn:curRegister()),y);
+			MOV(x,sRegister(fn:curRegister()));
+			fn:freeRegister();
+		}
+		apply gen-rOp('+=' x y) 	-> gen-aOp('+', x, y);
+		apply gen-rOp('-=' x y)  	-> gen-aOp('-', x, y);
+		apply gen-rOp('*=' x y) 	-> gen-aOp('*', x, y);
+		apply gen-rOp('/=' x y)  	-> gen-aOp('/', x, y);
+		apply gen-rOp('%=' x y) 	-> gen-aOp('%', x, y);
+		apply gen-rOp('|=' x y)  	-> gen-aOp('|', x, y);
+		apply gen-rOp('&=' x y)  	-> gen-aOp('&', x, y);
+		apply gen-rOp('>>=' x y) 	-> gen-aOp('>>', x, y);
+		apply gen-rOp('<<=' x y) 	-> gen-aOp('<<' ,x, y);
+		apply gen-rOp('^=' x y)  	-> gen-aOp('^', x, y);
+		apply gen-rOp('~=' x y)  	-> gen-aOp('~', x, y);
+
+		apply gen-rOp('=' x y) 		-> MOV(x,y);
+		apply gen-rOp('+' x y) 		->
+		{
+			if(fn:Eq(fn:top($typs,0),T("string")))
+			{
+				PUSH(y);
+				PUSH(x);
+				MOV(eax,Fct(StringAdd));
+				CALL(eax);
+				MOV(sRegister(fn:curRegister()),eax);
+			}else
+				ADD(x,y);
+		}
+		apply gen-rOp('-' x y) 		-> SUB(x,y);
+		apply gen-rOp('*' x y) 		-> IMUL(x,y);
+		apply gen-rOp('/' x y) 		-> IDIV(x,y);
+		apply gen-rOp('%' x y) 		-> 
+		{
+			IDIV(x,y);
+			MOV(x, edx);
+		}
+		
+		//常数折叠
+		apply gen-cOp('<' x y) 		->fn:Lt(x,y);
+		apply gen-cOp('<=' x y) 	->fn:Lte(x,y);
+		apply gen-cOp('>' x y) 		->fn:Gt(x,y);
+		apply gen-cOp('>=' x y) 	->fn:Gte(x,y);
+		apply gen-cOp('==' x y) 	->fn:Eq(x,y);
+		apply gen-cOp('!=' x y) 	->fn:Neq(x,y);
+		apply gen-cOp('&' x y) 		-> fn:Band(x,y);
+		apply gen-cOp('|' x y) 		-> fn:Bor(x,y);
+		apply gen-cOp('^' x y) 	-> fn:Xor(x,y);
+		apply gen-cOp('||' x y) 	-> fn:Or(x,y);
+		apply gen-cOp('&&' x y) 	-> fn:And(x,y);
+		apply gen-cOp('+' x y)		->fn:Add(x,y);
+		apply gen-cOp('-' x y)		->fn:Sub(x,y);
+		apply gen-cOp('*' x y)		->fn:Mul(x,y);
+		apply gen-cOp('/' x y)		->fn:Div(x,y);
+		
+		apply Field(base fd ty) -> fn:node(Field, base,fd, ty);
+		apply Method(base fd) -> fn:node(Method,base,fd);
+		
+		apply FieldAddress(Field(ptr fd ty)) -> 
+		{
+			if(fn:symIsOleItem(fd))
+			{
+				//push Ret
+				MOV(ebx,ptr);
+				LEA(eax, Address(ebp,Imm(fn:Neg(0x80))));
+				MOV(Address(eax),Imm(0));
+				PUSH(eax);
+		
+				var $nmethod;
+				fn:bind($nmethod,fn:symGetOlePropGet(fd));
+				//push this
+				MOV(ecx,ebx);
+				PUSH(ecx);
+				//find vtable
+				MOV(eax,Address(ecx));
+				ADD(eax,Imm(fn:Mul(4,fn:Dec($nmethod))));
+				MOV(eax,Address(eax));
+				CALL(eax);
+				MOV(sRegister(fn:askRegister()),Address(ebp,Imm(fn:Neg(0x80))));
+				sRegister(fn:curRegister());
+			}else
+			{
+				MOV(sRegister(fn:askRegister()),ptr);
+				if(fn:Eq(fn:symGetTypeKind(ty),class_key("struct")))
+				{
+					ADD(sRegister(fn:curRegister()),Imm(fn:symGetOffsetOfField(ty,fd)));
+				}else
+				{
+					Address(sRegister(fn:curRegister()),Imm(fn:symGetOffsetOfField(ty,fd)));
+				}
+			}
+		}		
+		apply FieldAddress(Field(Address(m s d) fd ty)) -> 
+		{
+			var $faddr;
+			fn:bind($faddr,Address(m,s,d));
+			if(fn:symIsOleItem(fd))
+			{
+				//push Ret
+				LEA(eax, Address(ebp,Imm(fn:Neg(0x80))));
+				MOV(Address(eax),Imm(0));
+				PUSH(eax);
+		
+				var $nmethod;
+				fn:bind($nmethod,fn:symGetOlePropGet(fd));
+				//push this
+				MOV(ecx,$faddr);
+				PUSH(ecx);
+				//find vtable
+				MOV(eax,Address(ecx));
+				ADD(eax,Imm(fn:Mul(4,fn:Dec($nmethod))));
+				MOV(eax,Address(eax));
+				CALL(eax);
+				MOV(sRegister(fn:askRegister()),Address(ebp,Imm(fn:Neg(0x80))));
+				sRegister(fn:curRegister());
+			}else
+			{
+				if(fn:Eq(fn:symGetTypeKind(ty),class_key("struct")))
+				{
+					if(IsRegisterAddress($faddr))
+						LEA(Register(RegisterOfAddress($faddr)),$faddr); //reuse register
+					else
+						LEA(sRegister(fn:askRegister()),$faddr);
+				}else
+				{
+					if(IsRegisterAddress($faddr))
+						MOV(Register(RegisterOfAddress($faddr)),$faddr); //reuse register
+					else
+						MOV(sRegister(fn:askRegister()),$faddr);
+				}
+				Address(sRegister(fn:curRegister()),Imm(fn:symGetOffsetOfField(ty,fd)));
+			}
+		}
+		apply FieldAddress(Field(Field(base fd1 ty1) fd ty)) -> FieldAddress(Field(FieldAddress(Field(base,fd1,ty1)),fd,ty));
+
+		//other
+		apply gen-Op(o x y) 		-> gen-rOp(o,x,y); 
+		
+		//register
+		apply gen-Op(o x  Register(y b))	 -> 
+		{
+			gen-rOp(o,x,Register(y,b));
+			fn:freeRegister();
+		}
+
+		apply gen-Op(o Imm(x b)  y) ->
+		{
+			MOV(sRegister(fn:askRegister()),Imm(x,b));
+			gen-rOp(o,sRegister(fn:curRegister()),y); 
+		}
+
+		apply gen-Op(o Imm(x b)  Register(y b1)) ->
+		{
+			MOV(sRegister(fn:askRegister()),Imm(x,b));
+			gen-rOp(o,sRegister(fn:curRegister()),Register(y,b1)); 
+			fn:freeRegister();
+		}
+		
+		apply gen-Op(o Address(m s d) y)-> 
+		{
+			if(NeedLeftValue(o))
+				gen-rOp(o, Address(m,s,d),y);
+			else
+			{
+				MOV(sRegister(fn:askRegister()),Address(m,s,d));
+				gen-Op(o, sRegister(fn:curRegister()),y);
+			}
+		}
+
+		//address address
+		apply gen-Op(o Address(m s d) Address(m1 s1 d1))-> 
+		{
+			//不能同时对内存变量操作,需要把一个转成寄存器
+			if(NeedLeftValue(o))
+			{
+				MOV(sRegister(fn:askRegister()),Address(m1,s1,d1));
+				gen-Op(o, Address(m,s,d),sRegister(fn:curRegister()));
+			}
+			else
+			{
+				MOV(sRegister(fn:askRegister()),Address(m,s,d));
+				gen-Op(o, sRegister(fn:curRegister()),Address(m1,s1,d1));
+			}
+		}
+		
+		/*
+		apply gen-iOp('+' Imm(v b) y) 	-> gen-Op('+', y, Imm(v,b));
+		apply gen-iOp('*' Imm(v b) y) 	-> gen-Op('*', y, Imm(v,b));
+		apply gen-iOp('&' Imm(v b) y) 	-> gen-Op('&', y, Imm(v,b));
+		apply gen-iOp('|' Imm(v b) y) 	-> gen-Op('|', y, Imm(v,b));
+		apply gen-iOp('^' Imm(v b) y) 	-> gen-Op('^', y, Imm(v,b));
+		apply gen-iOp('&&' Imm(v b) y) 	-> gen-Op('&&', y, Imm(v,b));
+		apply gen-iOp('||' Imm(v b) y) 	-> gen-Op('||', y, Imm(v,b));
+		apply gen-Op(o Imm(v b) y) 		-> gen-iOp(Imm(v,b), y);
+		*/
+			
+		//other
+		apply GenOp(o x y) -> 
+		{
+			gen-Op(o ,x ,y);
+			fn:pop($items);
+			fn:pop($items);
+			fn:push($items,sRegister(fn:curRegister()));
+		}
+		
+		//imm imm
+		apply GenOp(o Imm(x b1) Imm(y b2)) -> 
+		{
+			fn:pop($items);
+			fn:pop($items);
+			fn:push($items,Imm(gen-cOp(o,x,y)));
+		}
+		
+		apply GenOp(o Field(base fd ty)  y) ->
+		{
+			GenOp(o,FieldAddress(Field(base,fd,ty)) ,y); 
+		}
+		
+		apply GenOp(o x Field(base fd ty)) ->
+		{
+			GenOp(o,x, FieldAddress(Field(base,fd,ty))); 
+		}
+		
+		apply GenOp(o Field(base fd ty)  Field(base1 fd1 ty1)) ->
+		{
+			GenOp(o,FieldAddress(Field(base,fd,ty)) ,FieldAddress(Field(base1,fd1,ty1))); 
+		}
+		
+		apply NEG(Field(base fd ty))  -> NEG(FieldAddress(Field(base,fd,ty)));
+		apply NOT(Field(base fd ty))  -> NOT(FieldAddress(Field(base,fd,ty)));
+		apply PUSH(Field(base fd ty)) -> PUSH(FieldAddress(Field(base,fd,ty)));
+		
+		apply binary-operator(o x y ) 	->
+		{
+			fn:apply(x);
+			fn:apply(y);
+
+			GenOp(o, fn:top($items,1), fn:top($items,0));
+			fn:bind($type,T(trans-type(o,fn:symGetTermName(fn:top($typs,0)),
+						fn:symGetTermName(fn:top($typs,1)))));
+			fn:pop($typs);
+			fn:pop($typs);
+			fn:push($typs,$type);
+		}
+		
+		apply variant-name(x) := x;
+		apply cast-expression(x) := x;
+		apply cast-expression("cast" '(' x "as" type-id(t) ')' )->
+		{
+			fn:apply(x);
+			fn:pop($typs);
+			fn:push($typs,fn:apply(t));
+		}
+		apply cast-expression("trust" '(' x "as" type-id(t) ')' )->
+		{
+			fn:apply(x);
+			fn:pop($typs);
+			fn:push($typs,fn:apply(t));
+		}
+		
+		apply unary-expression(x) := x;
+		apply unary-expression('+' x) := x;
+		apply unary-expression('-' x) ->
+		{
+			if(fn:IsInteger(fn:LastChild(x)))
+				primary-expression(fn:Neg(fn:LastChild(x)));
+			else
+			{
+				fn:apply(x);
+				NEG(fn:top($items,0));
+			}
+		}
+		apply unary-expression('~' x) ->
+		{
+			if(fn:IsInteger(fn:LastChild(x)))
+				primary-expression(fn:Bnot(fn:LastChild(x)));
+			else
+			{
+				fn:apply(x);
+				NOT(fn:top($items,0));
+			}
+		}
+		apply unary-expression('!' x) ->
+		{
+			if(fn:IsInteger(fn:LastChild(x)))
+				primary-expression(fn:Bnot(fn:LastChild(x)));
+			else
+			{
+				//bug
+				fn:apply(x);
+			}
+		}
+		
+		apply unary-expression('--' x) ->
+		{
+			fn:apply(x);
+			DEC(fn:top($items,0));
+		}
+		
+		apply unary-expression('++' x) ->
+		{
+			fn:apply(x);
+			INC(fn:top($items,0));
+		}
+		
+		apply process-new(x rank)->
+		{
+			var $h;
+			if(fn:child(fn:LastChild(x)))
+			{
+				fn:bind($nest,0);
+				fn:apply(fn:ChildNext(fn:LastChild(x),0));
+				fn:bind($h, fn:symLookupItem($nest ,fn:LastChild(fn:ChildNext(fn:LastChild(x),1))));
+				fn:bind($nest,0);
+			}else
+				fn:bind($h,fn:symGetTypeHandle(fn:LastChild(x)));
+			
+			if(fn:symIsOleItem($h))
+			{
+				PUSH(Imm(fn:symGetOleTypeInfo($h)));
+				PUSH(Imm(fn:symGetTypeOleName($h)));
+				MOV(eax,Fct(OleCreateInstanceEx));
+				CALL(eax);
+				ADD(esp,Imm(8));
+			}else
+			{
+				if(rank)
+				{
+					MOV(eax,Imm(fn:symGetTypeAllocSize($h)));
+					MUL(eax,fn:top($items,0));
+					PUSH(eax);
+					fn:pop($typs);
+					fn:pop($items);
+				}else
+					PUSH(Imm(fn:symGetTypeAllocSize($h)));
+				MOV(eax,Fct(alloc));
+				CALL(eax);
+				ADD(esp,Imm(4));
+			}
+			MOV(sRegister(fn:askRegister()),eax);
+			
+			fn:push($typs,$h);
+			fn:push($items,sRegister(fn:curRegister()));
+			
+		}
+		
+		apply unary-expression("new" unary-expression(postfix-expression(x y))) ->
+		{
+			fn:apply(fn:ChildNext(fn:child(y,1),1));
+			process-new(x,true);
+		}
+		apply unary-expression("new" unary-expression(postfix-expression(x))) ->process-new(x,false);
+		
+		apply unary-expression("delete" x) ->
+		{
+			fn:apply(x);
+			if($trace-code)fn:print("\n\t \t free ",fn:top($items,0));
+			
+			fn:pop($typs);
+			fn:push($typs,T("void"));
+		}
+		
+		apply postfix-expression(x) := x;
+		apply postfix-expression( x y) := x y;
+		
+		//bug 未处理
+		apply element-item('[' x ']') ->
+		{
+			var $typ;
+			fn:bind($typ,fn:symStepCompType(fn:top($typs,0)));
+			
+			var $temp;
+			fn:bind($temp,$lvalue);
+			fn:apply(x);
+			fn:bind($lvalue,$temp);
+			
+			fn:freeRegister();
+			
+			if($trace-code)fn:print("\n\t \t mov r", fn:curRegister()," , element ", fn:top($items,0),";");
+			
+			//pop rank
+			fn:pop($items);
+			fn:pop($typs);
+			//pop id
+			fn:pop($items);
+			fn:pop($typs);
+			
+			fn:push($typs,$typ);
+			fn:push($items,fn:Add("r",fn:curRegister()));
+		}
+		
+		apply field-item('.' x) ->
+		{
+			//判断类型对应名称的列是否存在
+			var $handle;
+			var $ptr;
+			fn:bind($handle,fn:symLookupItem(fn:top($typs,0),x));
+			
+			if(fn:Eq(T("string"), fn:top($typs,0)))
+				fn:bind($handle,fn:symLookupItem(T("xstring"),x));
+			if(fn:Eq(T("int"), fn:top($typs,0)))
+				fn:bind($handle,fn:symLookupItem(T("xint"),x));
+			if(fn:Eq(T("double"), fn:top($typs,0)))
+				fn:bind($handle,fn:symLookupItem(T("xdouble"),x));
+			
+			fn:bind($ptr,fn:top($items,0));
+			
+			if(fn:Eq(handle-kind($handle),"method")) 
+			{
+				fn:pop($items);
+				fn:push($items,Method($ptr,$handle));
+			}else if(fn:Eq(handle-kind($handle),"field")) 
+			{
+				fn:pop($items);
+				fn:push($items,Field($ptr,$handle,fn:top($typs,0)));
+			}
+			fn:pop($typs);
+			fn:push($typs,fn:symGetTermType($handle));
+		}
+		
+		apply postfix-operator('++')->
+		{
+			MOV(sRegister(fn:askRegister()),fn:top($items,0));
+			INC(fn:top($items,0));
+			fn:pop($items);
+			fn:push($items,sRegister(fn:curRegister()));
+		}
+		apply postfix-operator('--')->
+		{
+			MOV(sRegister(fn:askRegister()),fn:top($items,0));
+			DEC(fn:top($items,0));
+			fn:pop($items);
+			fn:push($items,sRegister(fn:curRegister()));
+		}
+		
+		apply proc-function-call(x) ->
+		{
+			var $addr;
+			var list $indexs;
+			var $mynest;
+			
+			fn:bind($mynest,$nest);
+			fn:push($indexs,fn:size($typs));
+			
+			if(fn:symIsOleItem(fn:ChildNext(fn:top($items,0),1)))
+			{
+				//push Ret
+				LEA(eax, Address(ebp,Imm(fn:Neg(0x80))));
+				MOV(Address(eax),Imm(0));
+				PUSH(eax);
+			}
+			var list $fns;
+			var $fn;
+			fn:push($fns,fn:ChildNext(fn:top($items,0),1));
+			
+			if(x)fn:vapply(x);
+			fn:bind($fn,fn:top($fns,0));
+			
+			if(fn:top($items,0))
+				fn:bind($fn,fn:symFindMatchedMethod($hmethod,$mynest,fn:ChildNext(fn:top($items,0),1),$typs, fn:top($indexs,0)));
+			
+			fn:bind($nest,0);
+			fn:setsize($typs,fn:top($indexs,0));
+			fn:pop($indexs);
+			
+			fn:pop($typs);
+			fn:push($typs,fn:symGetTermType($fn));
+			
+			if(fn:symIsOleItem($fn))
+			{
+				var $nmethod;
+				fn:bind($nmethod,fn:symGetOleMethod($fn));
+				//push this
+				if(fn:top($items,0))
+					MOV(ecx,fn:child(fn:top($items,0)));
+				else
+					fn:print("\r\n--****--",fn:top($items,0),"--",fn:symGetTermName($fn));
+				PUSH(ecx);
+				//find vtable
+				MOV(eax,Address(ecx));
+				ADD(eax,Imm(fn:Mul(4,fn:Dec($nmethod))));
+				MOV(eax,Address(eax));
+				CALL(eax);
+				MOV(eax,Address(ebp,Imm(fn:Neg(0x80))));
+				//fn:pop($items);
+			}else
+			{
+				fn:bind($addr,fn:symGetMethodAddr($fn));
+				fn:bind($spec,fn:symGetMethodSpec($fn));
+				if($addr)
+				{
+					MOV(eax,Imm($addr));
+				}else
+				{
+					if(fn:Band($spec,type_spec("native")))
+					{
+						PUSH(Imm(fn:symGetMethodNativeAlias($fn)));
+						PUSH(Imm(fn:symGetMethodNativeFrom($fn)));
+						MOV(eax,Fct(LoadProcAddress));
+						CALL(eax);
+						ADD(esp,Imm(8));
+					}else
+					{
+						PUSH(Imm($fn));
+						PUSH(Imm(fn:symGetSymTable()));
+						MOV(eax,Fct(GetMethodAddr));
+						CALL(eax);
+					}
+				}
+				if(fn:Band($spec,type_spec("static")))
+				{
+					CALL(eax);
+					if(fn:Not(fn:Band($spec,type_spec("stdcall"))))
+					{
+						ADD(esp,Imm(fn:symGetMethodParamSize($fn)));
+					}
+				}else 
+				{//this call
+					if(fn:Band($spec,type_spec("stdcall")))
+						PUSH(fn:child(fn:top($items,0)));
+					MOV(ecx,fn:child(fn:top($items,0)));
+					CALL(eax);
+					MOV(ecx,Address(ebp,Imm(fn:Neg(4))));
+					//fn:pop($items);
+				}
+			}
+			fn:pop($items);
+			fn:push($items,eax);
+			
+			fn:pop($fns);
+		}
+				
+		apply function-argument('(' ')') -> proc-function-call(0);
+		apply function-argument('(' argument-list(x) ')') -> proc-function-call(x);
+		
+		apply	PushArg(x) -> PUSH(x);
+		apply PushArg(Register(x b)) ->
+		{
+			PUSH(Register(x, b));
+			fn:freeRegister();
+		}
+		
+		apply argument(x) ->
+		{
+			fn:apply(x);
+			PushArg(fn:top($items,0));
+			fn:pop($items);
+		}
+		
+		apply primary-expression(x) ->
+		{
+			fn:bind($lvalue,false);
+			settype(x);
+			if(fn:Eq(fn:top($typs,0),T("double")))
+			{
+				MOVD(xmm(0),fn:getDoublePtr(x));
+				fn:push($items,xmm(0));
+			}
+			else
+				fn:push($items,Imm(x));
+		}
+			
+		apply primary-expression('(' exp ')' ) 	:= exp ; 
+
+		apply OffsetTerm("variant" h) ->
+			Address(ebp,Imm(fn:Neg(fn:Add(4,fn:symGetOffsetOfTerm($hmethod,h)))));
+		
+		apply OffsetTerm("param" h) ->
+			Address(ebp,Imm(fn:Add(8,fn:symGetOffsetOfTerm($hmethod,h))));
+		
+		apply OffsetTerm("method" h) := h;
+		
+		apply OffsetTerm("field" h) ->	
+			Address(ecx,Imm(fn:symGetOffsetOfTerm($htype,h)));
+		
+		apply proc-primary-expression(hItem x) ->
+		{
+			fn:push($typs,handle-type(hItem));
+			fn:bind($lvalue,true);
+			
+			var $spec;
+			if(fn:Eq(handle-kind(hItem),"method"))
+			{
+				fn:bind($spec,fn:symGetMethodSpec(hItem));
+				if(fn:Not(fn:Band($spec,type_spec("static"))))
+					fn:push($items,Method(ecx,hItem)); 
+				else
+					fn:push($items,Method(0,hItem)); 
+			}
+			else
+				fn:push($items,OffsetTerm(handle-kind(hItem),hItem));		
+		}
+		
+		apply primary-expression(qualified-id(unqualified-id(x)))->
+		{
+			var $item;
+			fn:bind($item,fn:context_get_word(fn:context_find_token(x)));
+			if(fn:Lte($item,0)) fn:bind($item,fn:symLookupItem($htype,x));
+			proc-primary-expression($item,x);
+		}
+		
+		apply primary-expression(qualified-id(nest unqualified-id(x)))->
+		{
+			fn:bind($nest,0);
+			fn:apply(nest);
+			var $item;
+			fn:bind($item,fn:symLookupItem($nest,x));
+			proc-primary-expression($item,x);
+		}
+		
+		apply primary-expression("this")->
+		{
+			//bug要判断是否是静态调用
+			fn:push($items, ecx);
+			fn:push($typs,handle-type($htype));
+		}
+
+		apply nested-name-specifier(x '::')->
+		{
+			if(fn:Eq($nest,0))
+			{
+				fn:bind($nest,fn:context_get_word(fn:context_find_token(x)));
+			}else
+			{
+				fn:bind($nest,fn:lookupItem($nest,x));
+			}		
+		}
+		
+		apply CMP(Field(base fd ty) y) ->
+		{
+			CMP(FieldAddress(Field(base,fd,ty)),y); 
+		}
+		
+		//未处理变量块上下文
+		apply compound-statement('{' x '}') := x;
+		
+		//处理控制语句
+		apply proc_if_statement(cnd st sf) ->
+		{
+			fn:apply(cnd);
+			//CMP(fn:top($items,0),Imm(0));
+			CMP(eax,Imm(0));
+			fn:pop($items);
+			JCC(Label(labelIfFalse),cEqual);
+			fn:apply(st);
+			if(sf) JMP(Label(labelIfNext));
+			LABEL(labelIfFalse);
+			if(sf) fn:apply(sf);
+			LABEL(labelIfNext);
+		}
+		
+		apply proc_for_statement(init cnd pinc st) ->
+		{
+			fn:apply(init);
+			LABEL(label_cond);
+			fn:apply(cnd);
+			//CMP(fn:top($items,0),Imm(0));
+			CMP(eax,Imm(0));
+			JCC(Label(label_break),cEqual);
+			
+			fn:push($continuelabels,Label(label_continue));
+			fn:push($breaklabels,Label(label_break));
+			fn:apply(st);
+			fn:pop($continuelabels);
+			fn:pop($breaklabels);
+			
+			fn:clearRegister();
+			LABEL(label_continue);
+			fn:apply(pinc);
+			
+			JMP(Label(label_cond));
+			LABEL(label_break);
+		}
+		
+		apply proc_while_statement(cnd st) 	->
+		{
+			LABEL(label_continue);
+			fn:apply(cnd);
+			//CMP(fn:top($items,0),Imm(0));
+			CMP(eax,Imm(0));
+			JCC(Label(label_break),cEqual);
+			
+			fn:push($continuelabels,Label(label_continue));
+			fn:push($breaklabels,Label(label_break));
+			fn:apply(st);
+			fn:pop($continuelabels);
+			fn:pop($breaklabels);
+			
+			JMP(Label(label_continue));
+			LABEL(label_break);	
+		}
+		
+		apply proc_do_statement(cnd st)  ->
+		{
+			LABEL(do_start);
+			
+			fn:push($continuelabels,Label(label_continue));
+			fn:push($breaklabels,Label(label_break));
+			
+			fn:apply(st);
+		
+			fn:pop($continuelabels);
+			fn:pop($breaklabels);
+			
+			fn:clearRegister();
+			LABEL(label_continue);
+			fn:apply(cnd);
+			CMP(eax,Imm(0));
+			//CMP(fn:top($items,0),Imm(0));
+			JCC(Label(do_start),cNotEqual);
+			LABEL(label_break);
+		}
+		
+		apply proc-return-statement(e) ->
+		{
+			if(e)
+			{
+				fn:apply(e);
+				MOV(eax,fn:top($items,0));
+				JMP($retlabel);
+			}
+			else
+			{
+				JMP($retlabel);
+			}
+		}
+		
+		apply proc-break-statement() 		->JMP(fn:top($breaklabels,0));
+		apply proc-continue-statement() 	->JMP(fn:top($continuelabels,0));
+	]
+]

@@ -1,0 +1,3 @@
+use "wpp.processor.vd"
+
+process complier [ fire wpp_complier : wpp_unit ; ]

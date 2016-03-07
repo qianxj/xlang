@@ -1,0 +1,186 @@
+use "wpp.xlang.vd"
+use "process.xlang.vd"
+use "wpp.processor.def.vd"
+
+processor wpp_complier(node r)
+[
+	apply check-type(o x y) -> fn:print("\r\nError row ",fn:TextRow(o)," col ",fn:TextCol(o),":   ", "操作数类型错误!");
+	apply check-type('+' "string" "string");
+	apply check-type(o "int" "int");
+	apply check-type('+' "double" "double");
+	apply check-type('-' "double" "double");
+	apply check-type('*' "double" "double");
+	apply check-type('/' "double" "double");
+	
+	//数据类型
+	apply trans-type(o x y)						->
+	{
+		fn:print("\n---type error: " ,x, " ", o," ",y);
+		"unknown";
+	}
+	
+	apply trans-type('+' "int" "char")			:= "int";
+	apply trans-type('+' "int" "short")			:= "int";
+	apply trans-type('+' "int" "byte")			:= "int";
+	apply trans-type('+' "double" x)				->trans-type('+' ,"double", trans-type('+',"int",x));
+	
+	apply trans-type('+' "double" "unknown")	:= "unknown";
+	apply trans-type('+' x  "int")					->trans-type('+' , "int", x);
+	apply trans-type('+' x "double")				->trans-type('+' ,"double", x);
+	
+	apply trans-type('+' "int" "double")			:="double";
+	apply trans-type('+' "double" "int")			:="double";
+	apply trans-type('+' "double"	"double")	:="double";
+	apply trans-type('+' "string" "string")		:="string";
+	apply trans-type('+' "int" "int")				:= "int";
+	
+	apply trans-type('+=' "string" "string")		:="string";
+
+	apply trans-type('-'  x y)						->trans-type('+' ,x, y);
+	apply trans-type('*'  x y)						->trans-type('+', x, y);
+	apply trans-type('/'  x y)						->trans-type('+' ,x, y);
+	apply trans-type('%' x y)						->trans-type('+', x, y);
+	
+	apply trans-type('>'  x y)						:="bool";
+	apply trans-type('>='  x y)					:="bool";
+	apply trans-type('<'  x y)						:="bool";
+	apply trans-type('<=' x y)						:="bool";
+	apply trans-type('==' x y)						:="bool";
+	apply trans-type('!=' x y)						:="bool";
+	
+	apply trans-type('&&' x y)						:="bool";
+	apply trans-type('||' x y)						:="bool";
+	apply trans-type('&' x y)						:="int";
+	apply trans-type('|' x y)						:="int";
+	apply trans-type('>>' x y)						:="int";
+	apply trans-type('<<' x y)						:="int";
+	apply trans-type('^' x y)						:="int";
+	
+	apply trans-type('=' x y) 		:= x;
+	apply trans-type('+=' x y) 	:= x;
+	apply trans-type('-=' x y) 	:= x;
+	apply trans-type('*=' x y) 	:= x;
+	apply trans-type('/=' x y) 	:= x;
+	apply trans-type('%=' x y) 	:= x;
+	apply trans-type('|=' x y) 	:= x;
+	apply trans-type('&=' x y) 	:= x;
+	apply trans-type('>>=' x y) 	:= x;
+	apply trans-type('<<=' x y)	:= x;
+	apply trans-type('^=' x y) 	:= x;
+	apply trans-type('~=' x y) 	:= x;
+	
+	//基本类型分类
+	apply _IsSignInteger(quard)		:= false;
+	apply _IsSignInteger("int64")		:= true;
+	apply _IsSignInteger("int")			:= true;
+	apply _IsSignInteger("short")		:= true;
+	apply _IsSignInteger("char")		:= true;
+	apply _IsSignInteger("byte")		:= true;
+
+	apply _IsNosignInteger(quard)		:= false;
+	apply _IsNosignInteger("uint64")		:= true;
+	apply _IsNosignInteger("uint")		:= true;
+	apply _IsNosignInteger("ushort")		:= true;
+	apply _IsNosignInteger("uchar")		:= true;
+	apply _IsNosignInteger("ubyte")		:= true;
+	
+	apply _IsInteger(quard)				:= false;
+	apply _IsInteger("int64")				:= true;
+	apply _IsInteger("int")					:= true;
+	apply _IsInteger("short")				:= true;
+	apply _IsInteger("char")				:= true;
+	apply _IsInteger("byte")				:= true;
+	apply _IsInteger("uint64")				:= true;
+	apply _IsInteger("uint")					:= true;
+	apply _IsInteger("ushort")				:= true;
+	apply _IsInteger("uchar")				:= true;
+	apply _IsInteger("ubyte")				:= true;
+	apply _IsInteger("bool")				:= true;
+	
+	apply _IsDoubleType(quard)			:= false;
+	apply _IsDoubleType("double")   	:= true;
+	apply _IsDoubleType("float")   		:= true;
+	
+	apply _IsDouble(quard)					:= false;
+	apply _IsDouble("double")				:= true;
+	apply _IsFloat(quard)					:= false;
+	apply _IsFloat("double")				:= true;
+	
+	apply _IsByte8(quard)					:= false;
+	apply _IsByte8("double")				:= true;
+	apply _IsByte8("int64")					:= true;
+	apply _IsByte8("uint64")				:= true;
+	
+	apply _IsString("string")				:= true;
+	
+	apply _IsNumber(x)						->fn:Bor(IsInteger(x),IsDouble(x));
+	
+	apply IsNumber(htype)				-> _IsNumber(fn:symGetTermName(htype));
+	apply IsString(htype)				-> _IsString(fn:symGetTermName(htype));
+	apply IsByte8(htype)				-> _IsByte8(fn:symGetTermName(htype));
+	apply IsDouble(htype)				-> _IsDouble(fn:symGetTermName(htype));
+	apply IsFloat(htype)					-> _IsFloat(fn:symGetTermName(htype));
+	apply IsDoubleType(htype)		-> _IsDoubleType(fn:symGetTermName(htype));
+	apply IsInteger(htype)				-> _IsInteger(fn:symGetTermName(htype));
+	apply IsNosignInteger(htype)		-> _IsNosignInteger(fn:symGetTermName(htype));
+	apply IsSignInteger(htype)		-> _IsSignInteger(fn:symGetTermName(htype));
+	
+	apply IsDoubleTypeMethod(fn)		->
+	{
+		if(fn:Eq(fn:symGetTermName(fn:symGetParent(fn)),"xdouble")) return  true;
+		return false;
+	}
+	apply IsPrimaryTypeMethod(fn)		->
+	{
+		if(fn:Eq(fn:symGetTermName(fn:symGetParent(fn)),"xstring")) return true;
+		if(fn:Eq(fn:symGetTermName(fn:symGetParent(fn)),"xint")) return true;
+		if(fn:Eq(fn:symGetTermName(fn:symGetParent(fn)),"xdouble")) return  true;
+		return false;
+	}
+	
+	//判断
+	apply NeedLeftValue(o) := false;
+	apply NeedLeftValue('=') := true;
+	apply NeedLeftValue('+=') := true;
+	apply NeedLeftValue('-=') := true;
+	apply NeedLeftValue('*=') := true;
+	apply NeedLeftValue('/=') := true;
+	apply NeedLeftValue('%=') := true;
+	apply NeedLeftValue('|=') := true;
+	apply NeedLeftValue('&=') := true;
+	apply NeedLeftValue('>>=') := true;
+	apply NeedLeftValue('<<=') := true;
+	apply NeedLeftValue('^=') := true;
+	apply NeedLeftValue('~=') := true;
+
+		//常数折叠
+	apply genLiteralOp('<' x y) 	->fn:Lt(x,y);
+	apply genLiteralOp('<=' x y) 	->fn:Lte(x,y);
+	apply genLiteralOp('>' x y) 	->fn:Gt(x,y);
+	apply genLiteralOp('>=' x y) 	->fn:Gte(x,y);
+	apply genLiteralOp('==' x y) 	->fn:Eq(x,y);
+	apply genLiteralOp('!=' x y) 	->fn:Neq(x,y);
+	apply genLiteralOp('&' x y) 	->fn:Band(x,y);
+	apply genLiteralOp('|' x y) 	->fn:Bor(x,y);
+	apply genLiteralOp('^' x y) 	->fn:Xor(x,y);
+	apply genLiteralOp('||' x y) 	->fn:Or(x,y);
+	apply genLiteralOp('&&' x y) 	->fn:And(x,y);
+	apply genLiteralOp('+' x y)		->fn:Add(x,y);
+	apply genLiteralOp('-' x y)		->fn:Sub(x,y);
+	apply genLiteralOp('*' x y)		->fn:Mul(x,y);
+	apply genLiteralOp('/' x y)		->fn:Div(x,y);
+	apply genLiteralOp('%' x y)	->fn:Mod(x,y);
+
+	apply T(x) 								-> fn:symGetTypeHandle(fn:hash(x));
+	apply settype(x) 						->fn:push($typs,T("int"));
+	apply settype(string-literal()) 	->fn:push($typs,T("string"));
+	apply settype(integer-literal()) 	->fn:push($typs,T("int"));
+	apply settype(double-literal()) 	->fn:push($typs,T("double"));
+	apply settype(char-literal()) 	->fn:push($typs,T("char"));
+	apply settype(bool-literal()) 	->fn:push($typs,T("bool"));
+	
+	apply item-type(x) 			-> fn:symGetTermType(fn:context_get_word(fn:context_find_token(x)));
+	apply handle-type(h) 		-> fn:symGetTermType(h);
+	apply handle-kind(h)  		-> item-kind(fn:Band(h,0xf)); //handle的低4位表示itemkind
+	apply context-lookup(x) 	-> fn:context_get_word(fn:context_find_token(x));
+]

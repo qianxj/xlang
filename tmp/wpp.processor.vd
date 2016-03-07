@@ -1,0 +1,361 @@
+use "wpp.xlang.vd"
+use "process.xlang.vd"
+use "wpp.processor.def.vd"
+use "wpp.processor.util.vd"
+use "wpp.processor.const.vd"
+use "wpp.processor.type.vd"
+use "wpp.processor.declare.vd"
+use "wpp.processor.typechk.vd"
+
+use "wpp.processor.stub.vd"
+use "wpp.ia32.processor.vd"
+use "wpp.processor.codegenex.vd"
+use "wpp.processor.gencode.util.vd"
+
+//use "wpp.processor.gen.vd"
+
+//?apply-statement-if;
+//?declare-variant;
+//?class-define;
+//?function-define;
+//?apply-define;
+processor wpp_complier(node r)
+[
+	//using processor wpp_ia32; 
+	//跟踪代码和对象
+	apply traceme(t) ->
+	{
+		fn:bind($trace-object,t);
+		fn:bind($trace-code,t);
+	}
+	//入口点
+	apply declare(wpp_unit("unit" id '[' wpp_declare ']')) -> proc_wppUnit(id, wpp_declare);
+	
+	//处理unit
+	apply proc_wppUnit(id wpp_declare) ->
+	{
+		//fn:print("\r\n used pages :",fn:AllocPages(), " at unit ",id);
+		//fn:SavePoint();
+		
+		//初始化field值
+		varInitial();
+		
+		fn:print("\r\nComplier ",fn:TextUrl(),"...");
+		//设置缺省命名空间
+		fn:push($hnamespaces,fn:symGetGlobalNamespace());
+		
+		//设置跟踪变量
+		//if(fn:Eq(fn:TextUrl(),""))traceme(true);
+		
+		//进入全局上下文区域
+		fn:context_enter_scope();
+		
+		//增加断点函数
+		let $fid =  fn:hash("debugbreak");
+		let $fn  = fn:symAddMethod(fn:top($hnamespaces,0),$fid,0,T("int"));
+		fn:context_push_word($fn, $fid);		
+
+		//开始处理
+		fn:apply(wpp_declare);
+
+		//设置stub,使得执行代码可以找到上下文。
+		if($complier-state)stub_context();
+		
+		//fn:symDump();
+		//fn:print("\r\nbefore restore used pages :",fn:AllocPages(), " at unit ",id);
+		//fn:RestorePoint();
+		//fn:print("\r\nafter restore used pages :",fn:AllocPages(), " at unit ",id);
+	}
+	apply wpp_unit("unit" id '[' wpp_declare ']') -> proc_wppUnit(id, wpp_declare);
+	apply wpp_declare(x) := x;
+	
+	//处理命名空间
+	//---------------------------------------------------------------------------------------
+	//处理OLE命名空间
+	//namespace msxml for ole "Msxml2.DOMDocument.6.0";
+	apply ole-namespace("namespace" name "for" "ole"  olestr ...) ->
+	{
+		//增加命名空间项。
+		fn:push($hnamespaces,fn:symAddNamespace(fn:top($hnamespaces,0),name));
+		//指定命名空间的OLE串。
+		fn:symSetNSOleTerm(fn:top($hnamespaces,0),fn:symAddNSOleTerm(fn:hash(olestr)));
+		//使得命名空间在上下文中可见。
+		fn:context_push_word(fn:top($hnamespaces,0),name);
+		fn:pop($hnamespaces);
+		if($trace-object)fn:print("namespace", " ", name, " ole \"" ,olestr ,"\";\n");
+	}
+	
+	//处理命名空间
+	apply namespace-define("namespace" name '{'  x '}') ->
+	{
+		//增加命名空间项。
+		fn:push($hnamespaces,fn:symAddNamespace(fn:top($hnamespaces,0),name));
+		//进入命名空间scope
+		fn:context_enter_scope();
+		if($trace-object)fn:print("namespace", " ", name, "{\n");
+		//处理内容
+		fn:apply(x);
+		if($trace-object)fn:print("\n}\n");
+		fn:context_leave_scope();
+		fn:pop($hnamespaces);
+	}
+	//---------------------------------------------------------------------------------------
+	//处理命名空间
+
+	//类处理
+	//----------------------------------------------------------------------------------------------------------------------
+	//编译的第一遍只处理类的声明，不处理类函数的内容，只是在$methods中保存各个类函数的抽象树。
+	//proc-class-methods用于具体函数的处理，负责遍历各个函数。
+	apply proc-class-methods() ->
+	{
+		for $t in $methods proc-function-define($t);
+	}
+	
+	apply class-process(kind id base body nx/*natibe*/ todef) ->
+	{
+		fn:bind($htype,fn:symAddType(fn:top($hnamespaces,0),class_key(kind), id,todef));
+		if($trace-object)fn:print("\n ", kind," ", id);
+		if(base)
+		{
+			if($trace-object)fn:print(':');
+			fn:apply(base);
+			fn:symAddBase($htype,$base);
+		}
+		
+		if(nx)
+		{
+			if($trace-object) fn:print(" native " );
+			fn:apply(nx);
+		}
+		
+		if($trace-object)fn:print("\n{");
+
+		//上下文语义
+		fn:context_push_word($htype, id);
+		
+		fn:context_enter_scope();
+		
+		fn:bind($complier-state,1);
+		
+		//生成类声明
+		context using context-class-declare;
+		fn:apply(body);
+		
+		//检查类方法
+		context using context-method-check;
+		proc-class-methods();
+		
+		//context using context-method-regalloc;
+		//proc-class-methods();
+		
+		//生成类方法
+		//fn:bind($complier-state, 0);
+		if($complier-state)
+		{
+			//fn:print("\r\nGen ",fn:symGetTermName($htype),"...");
+			//context using context-method-gen;
+			context using context-method-codegenex;
+			proc-class-methods();
+		}
+		if($trace-object)fn:print("\n};\n");
+		fn:setsize($methods,0);
+		fn:leaveContext();
+		fn:context_leave_scope();		
+	}
+		
+	apply class-define(kind id [':' class-base-list(base)] [nx:native-spec] ';') ->class-process(kind, id,fn:opt(base),0,fn:opt(nx),0/*todef*/);
+	apply class-define(kind id [':' class-base-list(base)] [nx:native-spec] '{' [x] '}' ';') -> class-process(kind, id,fn:opt(base),fn:opt(x),fn:opt(nx),1/*todef*/);
+	apply class-base(s id) ->
+	{
+		if($trace-object)fn:print(s," ",id);
+		if(fn:Not(fn:symGetTypeHandle(id)))
+			ChkError(id,id," 未定义类型.");
+		fn:bind($base,fn:symGetTypeHandle(id));
+	}
+		
+	apply class-body(x)  := x ;
+	//----------------------------------------------------------------------------------------
+	//处理类
+	
+	//处理本地属性
+	apply native-spec-item("from" x) ->
+	{
+		if($hmethod)
+			fn:symSetMethodNativeFrom($hmethod,x);
+		else if($htype)
+			fn:symSetTypeNativeFrom($htype,x);
+		else
+			ChkErr(x,x,"错误的外部属性设置.");
+		if($trace-object) fn:print("  from \"",x,"\"");
+	}
+	apply native-spec-item("alias" x) ->
+	{
+		if($hmethod)
+			fn:symSetMethodNativeAlias($hmethod,x);
+		else if($htype)
+			fn:symSetTypeNativeAlias($htype,x);
+		else
+			ChkErr(x,x,"错误的外部属性设置.");
+		if($trace-object) fn:print("  alias \"",x,"\"");
+	}
+	apply native-spec(x) := x ;
+	apply native-spec("native" x) := x ;
+	apply native-spec-list(x) := x;
+	
+	//nest处理
+	//--------------------------------------------------
+	apply proc-nested-name-specifier(x : list nested-name-specifier) ->
+	{
+		let $nest = 0;
+		for $t in x
+		{
+			if(fn:Not(fn:context_get_word(fn:context_find_token(fn:child($t)))))
+				ChkError(x,x, " 未定义命名空间或类型.");
+			else
+				fn:bind($nest,fn:context_get_word(fn:context_find_token(fn:child($t))));
+		}
+		return $nest;
+	}
+	//------------------------------------------------------------
+	//nest处理
+	
+	//类型type-id处理
+	//------------------------------------------------------------------------------
+	apply opType(spec typ)	->fn:node(opType,spec,typ);
+	//类型
+	apply type-id([spec : list type-spec]  type-primary(typ)  [arr : list type-array-part] ) -> 
+		proc-type-id(fn:opt(spec),0,typ,fn:opt(arr),true /*primary*/);
+	apply type-id([spec : list type-spec]  qualified-id([nest] unqualified-id(typ))  [arr : list type-array-part] ) ->
+		proc-type-id(fn:opt(spec),fn:opt(nest),typ,fn:opt(arr),false /*primary*/);
+	
+	//规格项
+	apply proc-type-spec(x : list type-spec)  ->
+	{
+		let $spec = 0;
+		for $t in x fn:bind($spec, fn:Bor($spec,type_spec(fn:child($t))));
+		return $spec;
+	}
+	//数组项
+	apply proc-type-array-part(hCompType type-array-part('[' [x] ']')) ->
+	{
+		let $rank = 0;
+		if(fn:opt(x)) fn:bind($rank,x);
+		fn:symInsertCompTypeRank(hCompType,$rank);
+		fn:symInsertCompTypeItem(hCompType,fn:symGetTypeHandle(fn:hash("array")));
+	}
+	apply proc-type-array(hCompType x : list type-array-part) ->
+	{
+		for $t in x proc-type-array-part(hCompType, $t);
+	}
+	
+	//类型
+	apply proc-type-id(spec nest typ arr primary) ->
+	{
+		let $spec = 0;
+		if(spec) fn:bind($spec,proc-type-spec(spec));
+		
+		let $nest = 0;
+		if(nest) fn:bind($nest,proc-nested-name-specifier(nest));
+		
+		//查找类型项
+		let $hItem = 0;
+		 if($nest)
+		{
+			fn:bind($hItem,fn:symLookupItem($nest,typ));
+		}
+		else if(primary)
+		{
+			fn:bind($hItem,fn:symGetTypeHandle(typ));
+		}else
+		{
+			fn:bind($hItem,context-lookup(typ));
+		}
+
+		if(fn:Not($hItem))ChkError(typ,typ," 未定义类型.");
+		
+		if(arr)
+		{
+			let $hCompType = fn:symMakeTypeRef();
+			fn:symAddCompTypeItem($hItem);
+			proc-type-array($hCompType,arr);
+			return opType($spec,$hCompType);
+		}else
+			return opType($spec,$hItem);
+	}
+	//-----------------------------------------------------------------------------------
+	//类型type-id处理
+	
+	//函数处理
+	//--------------------------------------------------------------------------------------------
+	//处理函数定义
+	//function-define = type-id  identifier  '(' [ param-list ] ')'  [native-spec] {feature-term} (';' | '{'  [function-body]  '}' ) ;
+	apply process-function-define(typ id  p nx  feture body) ->
+	{
+		context using context-class-declare;
+		fn:bind($htype,0);
+		process-function-define(typ,id,p,nx,feture,body);
+		fn:leaveContext();
+	}
+	
+	apply function-define(typ : type-id  fid  '('  [ param-list(p) ] ')'  [ nx: native-spec]  ';' ) ->
+		process-function-define(fn:apply(typ), fid, fn:opt(p), fn:opt(nx), 0/*feature*/, 0/*body*/);
+
+	apply function-define(typ : type-id fid  '('  [ param-list(p) ] ')'  '{'  [b : function-body] '}' ) ->
+		process-function-define(fn:apply(typ), fid, fn:opt(p), 0/*native*/, 0/*feature*/, fn:opt(b));
+
+	//处理参数
+	apply param-item(typ: type-id id '='  init) ->proc-param-item(fn:apply(typ),id,init);
+	apply param-item(typ: type-id '='  init) ->proc-param-item(fn:apply(typ),0,fn:opt(init));
+	apply param-item(typ: type-id [id] [ '='  init]) ->proc-param-item(fn:apply(typ),fn:opt(id),fn:opt(init));
+		
+	//----------------------------------------------------------
+	//函数处理
+	
+	//申明处理
+	//------------------------------------------------------------------------------------------------------
+	
+	//处理变量名称
+	apply proc-variant-term(typ declare-variant-term(variant-name(n) [variant-initial('=' init)]))  
+		->proc_fieldorvariant(typ, n,fn:opt(init));
+
+	//处理变量申明，类的field也使用同样的规则
+	apply declare-variant( t : type-id terms ';') -> proc-declare-variant(t,terms);
+	apply proc-declare-variant(typ terms) -> 
+	{
+		//处理类型
+		let $typ = fn:apply(typ);
+		//处理申明项
+		for $t in terms
+			proc-variant-term($typ, $t);
+	}
+	//------------------------------------------------------------------------------------------------------------------------
+	
+	//以下apply用于处理函数体。
+	apply function-body(x) -> proc-function-body(x);
+	
+	//语句
+	apply statement(x) := x;
+
+	//控制语句
+	apply if-statement("if" '('  cnd ')' st) 			 	->  proc_if_statement(cnd,st,0);
+	apply if-statement("if" '('  cnd ')' st "else" sf) 	->  proc_if_statement(cnd,st,sf);
+	apply for-statement("for" '(' init cnd pinc ')' st)	->  proc_for_statement(init, cnd, pinc,st);
+	apply while-statement("while" '(' cnd ')' st) 		->  proc_while_statement(cnd,st);
+	apply do-statement("do" st "while" '(' cnd ')') 	->  proc_do_statement(cnd,st);
+	apply return-statement("return" ';') 				->  proc-return-statement(0);
+	apply return-statement("return" e ) 				->  proc-return-statement(e);
+	apply break-statement("break" ';') 		 		->  proc-break-statement();
+	apply continue-statement("continue" ';' ) 		->  proc-continue-statement();
+	
+	//初始化
+	apply initializer_clause(x) := x;
+	
+	//表达式
+	apply expression-statement(x ';') := x;
+	apply expression(x)  := x;
+	apply assignment-expression (x) := x;
+	apply assignment-expression (x assignment-operator(o) y) ->binary-operator(o,x,y);
+	apply conditional-expression(x) := x;
+	apply binary-expression(x) := x;
+	apply binary-expression(x y) := x y;
+]

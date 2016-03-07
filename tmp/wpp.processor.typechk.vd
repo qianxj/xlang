@@ -1,0 +1,662 @@
+use "wpp.xlang.vd"
+use "process.xlang.vd"
+use "wpp.processor.def.vd"
+use "wpp.processor.util.vd"
+use "wpp.processor.const.vd"
+use "wpp.processor.type.vd"
+
+//?apply-statement-if;
+//?declare-variant;
+//?class-define;
+//?function-define;
+//?apply-define;
+processor wpp_complier(node r)
+[
+	/*
+		上下文context-method-check用于对类的方法进行分析和校验
+		方法声明的建立已在上下文context-class-declare中完成。
+		本上文需在上下文context-class-declare完成后才能使用。
+	*/
+	//statement
+	apply opIf(cond tbody fbody)		-> fn:node(OpIf,cond,tbody,fbody);
+	apply opFor(init cond inc body)	-> fn:node(OpFor,init,cond,inc,body);
+	apply opWhile(cond body)			-> fn:node(OpWhile, cond,body);
+	apply opUntil(cond body)			-> fn:node(OpUntil, cond,body);
+	apply opReturn(exp)					-> fn:node(OpReturn,exp);
+	apply opContinue()					-> fn:node(OpContinue);
+	apply opBreak()						-> fn:node(OpBreak);
+	apply opCompStmt()				-> fn:node(OpCompStmt);
+	apply opExprStmt(exp)				-> fn:node(OpExprStmt,exp);
+	
+	apply opLiteral(typ lt)				-> fn:node(OpLiteral,0/*regs*/,typ,lt);
+	apply	opItem(typ hitem)			-> fn:node(OpItem,0/*regs*/,typ,hitem);
+	apply	opThis()							-> fn:node(OpThis,0/*regs*/,$htype/*typ*/);
+	apply	opNill()							-> fn:node(OpNill,0/*regs*/);
+	apply opMethod(typ base) 		-> fn:node(OpMethod,0/*regs*/,typ,base); //typ is hitem
+	apply opCall(typ mt args)   		-> fn:node(OpCall,0/*regs*/,typ,mt,args);
+	apply opArgList()						-> fn:node(OpArgList);
+	//后缀操作符
+	apply opField(typ base hitem) 	-> fn:node(OpField,0/*regs*/,typ, base,hitem);
+	apply opElement(typ rank exp idx)		-> fn:node(OpElement,0/*regs*/,typ, rank,exp,idx);
+	apply opInc(typ exp)		   		-> fn:node(OpInc,0/*regs*/,typ, exp);
+	apply opDec(typ exp)		   		-> fn:node(OpDec,0/*regs*/,typ, exp);
+	//前缀操作符
+	apply opUInc(typ exp)		   		-> fn:node(OpUInc,0/*regs*/,typ, exp);
+	apply opUDec(typ exp)		   		-> fn:node(OpUDec,0/*regs*/,typ, exp);
+	apply opNeg(typ exp)		   		-> fn:node(OpNeg,0/*regs*/,typ, exp);
+	apply opNew(typ rank)   	    	-> fn:node(OpNew,0/*regs*/,typ, rank);
+	apply opDelete(exp)	   		    	-> fn:node(OpDelete,0/*regs*/,T("void"), exp);
+	apply opNot(typ exp)				-> fn:node(OpNot,0/*regs*/,typ, exp);
+	apply opBNot(typ exp)				-> fn:node(OpBNot,0/*regs*/,typ, exp);
+	
+	//转换操作符
+	apply opCast(typ typFrom exp)	-> fn:node(OpCast, 0/*regs*/,typ,typFrom,exp);
+	//中缀操作符
+	apply opBinary(op typ lhs rhs)	-> fn:node(OpBinary,0/*regs*/,typ,op,lhs,rhs);
+	
+	//用于记录primary-expression变量项，这些项可能会在postfix-expression中用到
+	context context-method-check
+	[
+		apply proc-function-define(Method(hmethod p body)) ->
+		{
+			fn:bind($hmethod,hmethod);
+			//上下文语义
+			fn:context_enter_scope();
+			//处理参数
+			if(p)fn:apply(p);
+			//处理函数体
+			if(body) fn:apply(body);
+			fn:bind($hmethod, 0);
+			fn:context_leave_scope();
+		}
+		
+		//处理参数，在这里只把参数名压入查找上下文。
+		apply proc-param-item(opType(spec typ) id init)->
+		{
+			fn:context_push_word(fn:symGetMethodParamHandle($hmethod,id),id);
+		}
+		
+		//处理函数体
+		apply proc-function-body(x) ->
+		{
+			if( $complier-state)fn:setsize($items,0);
+			let $r = compound-statement('{', x, '}');
+			
+			if( $complier-state)
+			{
+				fn:symSetMethodPCode($hmethod,$r);
+				//fn:trace(fn:symGetMethodPCode($hmethod));
+			}
+		}
+		
+		//处理函数变量
+		apply proc_fieldorvariant(opType(spec typ) id init) ->
+		{
+			if($hmethod)
+			{
+				if(typ)
+				{
+					//bug:应该在参数范围内检查
+					if(fn:Gte(fn:context_find_token(id),0)) ChkError(n,id,"变量重复定义!");
+					
+					let $hvar = fn:symAddVariant($hmethod, id,spec,typ);
+					if($trace-object)fn:print("\n\t ", fn:symGetTermName(typ)," ", id,  ";");
+				
+					fn:context_push_word($hvar,id);
+					//初始值处理，在这里只检查表达式的类型是否跟申明的类型一致
+					if(init)
+					{
+						//表达式分析，获得表达式的类型
+						let $exp = fn:apply(init);
+						if( $complier-state)
+						{
+							let $typ = fn:top($typs,0);
+							if(fn:Neq($typ,typ)) 
+							{
+								return opExprStmt(opBinary('=', typ, opItem(typ,$hvar), opCast(typ,$typ,$exp)));
+							}
+							else
+								return opExprStmt(opBinary('=', typ, opItem(typ,$hvar), $exp));
+							fn:pop($typs);
+						}
+					}else
+						return opNill();
+				}
+			}
+		}
+		
+		/*
+			以下程序处理语句，检查变量的定义及表达式操作的类型是否正确
+			句子的部分通途再通用上下文中。
+		*/
+		apply binary-operator(o x y ) 	->
+		{
+			let $lhs = fn:apply(x);
+			let $rhs = fn:apply(y);
+			let $typ2 = fn:top($typs,0);
+			let $typ1 = fn:top($typs,1);
+			let $type = T(trans-type(o,fn:symGetTermName($typ1),fn:symGetTermName($typ2)));
+			
+			fn:pop($typs);
+			fn:pop($typs);
+			fn:push($typs,$type);
+			
+			if( $complier-state)
+			{
+				if(fn:Eq(fn:name($lhs),fn:hash("OpLiteral")))
+				{
+					if(fn:Eq(fn:name($rhs),fn:hash("OpLiteral")))
+					{
+						fn:setValue(fn:ChildNext($lhs,2),genLiteralOp(o, fn:ChildNext($lhs,2),fn:ChildNext($rhs,2)));
+						return $lhs;
+					}
+				}
+				
+				if(fn:Not(IsCompOp(o)))
+				{
+					if(fn:And(fn:Neq($typ1,$type),fn:Not(IsAsnOp(o))))
+						fn:bind($lhs, opCast($type,$typ1,$lhs));
+					if(fn:Neq($typ2,$type)) 
+						fn:bind($rhs, opCast($type,$typ2,$rhs));
+				}else
+				{
+					if(fn:Or(IsDoubleType($typ1) ,IsDoubleType($typ2)))
+					{
+						if(fn:Not(IsDoubleType($typ1)))
+							fn:bind($lhs, opCast(T("double"),$typ1,$lhs));
+						if(fn:Not(IsDoubleType($typ2)))
+							fn:bind($rhs, opCast(T("double"),$typ2,$lhs));
+					}
+				}
+				
+				return opBinary(o,$type, $lhs,$rhs);
+			}
+		}
+
+		apply variant-name(x) := x;
+		apply cast-expression(x) := x;
+		apply unary-expression(x) := x;
+
+		apply cast-expression("cast" '(' x "as" typ ')' )->
+		{
+			let $t = fn:apply(x);
+			fn:settop($typs,fn:ChildNext(fn:apply(typ),1));
+			if( $complier-state) return $t;
+		}
+		apply cast-expression("trust" '(' x "as" typ ')' )->
+		{
+			let $t = fn:apply(x);
+			fn:settop($typs,fn:ChildNext(fn:apply(typ),1));
+			if( $complier-state) return $t;
+		}
+		
+		//bug 需要判断是否为数值类型
+		apply unary-expression('+' x) := x;
+		apply unary-expression('-' x) ->
+		{
+			let $exp = fn:apply(x);
+			if( $complier-state)
+			{
+				if(fn:Eq(fn:name($exp),fn:hash("OpLiteral")))
+				{
+					//fn:ChildNext($exp,2)获得OpLiteral的值项，见OpLiteral定义
+					fn:setValue(fn:ChildNext($exp,2),fn:Neg(fn:ChildNext($exp,2)));
+					return $exp;
+				}
+				return opNeg(fn:top($typs,0),$exp);
+			}
+		}
+		apply unary-expression('~' x) ->
+		{
+			let $exp = fn:apply(x);
+			if( $complier-state)
+			{
+				if(fn:Eq(fn:name($exp),fn:hash("OpLiteral")))
+				{
+					//fn:ChildNext($exp,2)获得OpLiteral的值项，见OpLiteral定义
+					fn:setValue(fn:ChildNext($exp,2),fn:Bnot(fn:ChildNext($exp,2)));
+					return $exp;
+				}
+				return opBNot(fn:top($typs,0),$exp);
+			}
+		}
+		apply unary-expression('!' x) ->
+		{
+			let $exp = fn:apply(x);
+			
+			if(fn:Eq(fn:name($exp),fn:hash("OpLiteral")))
+			{
+				//fn:ChildNext($exp,2)获得OpLiteral的值项，见OpLiteral定义
+				if(fn:Not(fn:ChildNext($exp,2)))
+					fn:setValue(fn:ChildNext($exp,2),1);
+				else
+					fn:setValue(fn:ChildNext($exp,2),0);
+				return $exp;
+			}
+			if( $complier-state) return opNot(fn:top($typs,0),$exp);
+		}
+		apply unary-expression("sizeof" x) ->
+		{
+			fn:apply(x);
+			fn:pop($typs);
+			let $r = fn:symGetTypeAllocSize(fn:top($typs,0));
+			fn:push($typs,T("int"));
+			return opLiteral(T("int"), $r);
+		}
+
+		apply unary-expression('--' x) ->
+		{
+			let $exp = fn:apply(x);
+			if(fn:Not($lvalue))ChkError(x,x,":  --操作需要左值!");
+			
+			if( $complier-state)
+				return opUDec(fn:top($typs,0),$exp);
+		}
+		apply unary-expression('++' x) ->
+		{
+			let $exp = fn:apply(x);
+			if(fn:Not($lvalue))ChkError(x,x,":  ++操作需要左值!");
+			
+			if( $complier-state)
+				return opUInc(fn:top($typs,0),$exp);
+		}
+		
+		//检查new操作
+		apply process-new(x rank) ->
+		{
+			var $h;
+			if(fn:child(fn:LastChild(x)))
+			{
+				//带nest的类型查找
+				let $nest = proc-nested-name-specifier(fn:ChildNext(fn:LastChild(x),0));
+				fn:bind($h, fn:symLookupItem($nest ,fn:LastChild(fn:ChildNext(fn:LastChild(x),1))));
+			}else
+				fn:bind($h,fn:symGetTypeHandle(fn:LastChild(x)));
+			
+			if(fn:Not($h))
+			{
+				let $complier-state = 0;
+				ChkError(x,x,"不是类型");
+				fn:bind($h,T("undef"));
+			}
+			fn:push($typs,$h);
+			
+			if( $complier-state) return opNew(fn:top($typs,0),rank);
+		}
+		apply unary-expression("new" unary-expression(postfix-expression(x y))) ->
+		{
+			process-new(x,fn:apply(fn:ChildNext(fn:Child(y,1),1)));
+		}
+		apply unary-expression("new" unary-expression(postfix-expression(x))) ->process-new(x,0);
+		
+		//bug 需要检查参数是否为类类型
+		apply unary-expression("delete" x) ->
+		{
+			let $oprand = fn:apply(x);
+			fn:push($typs,T("void"));
+			
+			if( $complier-state) return opDelete($oprand);
+		}
+		
+		apply postfix-expression(x) := x;
+		apply postfix-expression( x y) ->
+		{
+			let $t = fn:apply(x);
+			if( $complier-state) fn:push($items,$t);
+			if(fn:Eq(fn:top($typs,0),T("undef")))
+			{
+				fn:print("\n---- type undef");
+				if( $complier-state) return opNill();
+			}
+			else 
+			{
+				for $it in y
+				{
+					fn:bind($t, fn:apply($it));
+					if( $complier-state) fn:push($items,$t);
+				}
+				fn:pop($items);
+				return $t;
+			}
+		}
+		
+		//检查固定数组的维数是否超界。
+		apply ValidRank(x y) ->
+		{
+			if(fn:IsInteger(x))
+			{
+				if(fn:Lt(x,0)) ChkError(x,x,":   数组下标错误.");
+				if(fn:Gte(x,y)) ChkError(x,x,":  数组超界.");
+			}
+		}
+		apply ValidRank(x 0);
+		
+		//数组维数处理
+		apply element-item('[' x ']') ->
+		{
+			//要求是数组类型，或者定义了数组操作
+			if(fn:Eq(fn:symGetCompTypeItem(fn:top($typs,0)),T("array")))
+			{
+				//检查下标
+				ValidRank(fn:LastChild(x),fn:symGetCompTypeRank(fn:top($typs,0)));
+			}else
+			{
+				ChkError(x,x,"需要数组变量");
+				fn:throw("需要数组变量");
+			}
+			
+			let $rank = fn:symGetCompTypeRank(fn:top($typs,0));
+			
+			//数据项的类型
+			var $typ;
+			fn:bind($typ,fn:symStepCompType(fn:top($typs,0)));
+			
+			//处理维数
+			let $temp = $lvalue;
+			//bug 应该是整数类型
+			let $idx = fn:apply(x);
+			fn:bind($lvalue,$temp);
+			
+			//pop rank
+			fn:pop($typs);
+			//pop id
+			fn:pop($typs);
+			
+			fn:push($typs,$typ);
+			
+			if( $complier-state) return opElement(fn:top($typs,0),$rank, fn:top($items,0),$idx);
+		}
+		
+		//引用字段的处理
+		apply field-item('.' x) ->
+		{
+			//判断类型对应名称的列是否存在
+			var $handle;
+			fn:bind($handle,fn:symLookupItem(fn:top($typs,0),x));
+			
+			if(fn:Eq(T("string"), fn:top($typs,0)))
+				fn:bind($handle,fn:symLookupItem(T("xstring"),x));
+			if(fn:Eq(T("int"), fn:top($typs,0)))
+				fn:bind($handle,fn:symLookupItem(T("xint"),x));
+			if(fn:Eq(T("double"), fn:top($typs,0)))
+				fn:bind($handle,fn:symLookupItem(T("xdouble"),x));
+			
+			let $base = fn:top($items,0);
+			fn:pop($items);
+			
+			if($handle)
+			{
+				fn:pop($typs);
+				if(fn:Eq(handle-kind($handle),"method")) 
+				{
+					fn:push($typs,$handle);
+					if( $complier-state) return opMethod($handle,$base);
+				}
+				else
+				{
+					fn:push($typs,fn:symGetTermType($handle));
+					if( $complier-state) return opField(fn:top($typs,0),$base,$handle);
+				}
+			}else
+			{
+				ChkError(x,x,fn:Add(fn:Add(fn:symGetTermName(fn:top($typs,0)),".", x),"的不存在!"));
+				fn:pop($typs);
+				fn:push($typs,T("undef"));
+			}
+		}
+		
+		//bug 需要判断是否为数值类型
+		//bug 如何获得x?
+		apply postfix-operator('++')->
+		{
+			if(fn:Not($lvalue))ChkError(x,x,":  ++操作需要左值!");
+			let $base = fn:top($items,0);
+			fn:pop($items);
+			if( $complier-state) 	return opInc(fn:top($typs,0),$base);
+		}
+		apply postfix-operator('--')->
+		{
+			if(fn:Not($lvalue))ChkError(x,x,":  --操作需要左值!");
+			let $base = fn:top($items,0);
+			fn:pop($items);
+			if( $complier-state) 	return opDec(fn:top($typs,0),$base);
+		}
+
+		//处理函数调用
+		apply proc-function-call(x) ->
+		{
+			let $addr = 0;
+			let $oldsizetype = 0;
+			let $fnItem = 0;
+			
+			fn:bind($oldsizetype,fn:size($typs));
+			
+			fn:bind($fnItem , fn:top($typs,0));
+			if(fn:Not($fnItem))
+			{
+				fn:pop($typs);
+				fn:push(T("int"));
+				return 0;
+			}
+			
+			//处理参数，反向列表
+			if( $complier-state)	
+				fn:push($items,opArgList());
+			if(x)fn:vapply(x);
+			
+			if( $complier-state)
+			{
+				let $args = fn:top($items,0);
+				fn:pop($items);
+			}
+			
+			if(fn:symGetParent($fnItem))
+			{
+				if(fn:Eq(fn:symGetTermName(fn:symGetParent($fnItem)),"xstring"))fn:push($typs,T("string"));
+				else if(fn:Eq(fn:symGetTermName(fn:symGetParent($fnItem)),"xint"))fn:push($typs,T("int"));
+				else if(fn:Eq(fn:symGetTermName(fn:symGetParent($fnItem)),"xdouble"))fn:push($typs,T("double"));
+			}
+			
+			let $base = fn:top($items,0);
+			if($fnItem)
+			{
+				let $fn = fn:symFindMatchedMethod($hmethod,fn:symGetParent($fnItem),$fnItem,$typs, $oldsizetype);
+				if(fn:Eq($fn,0x10)) 
+					ChkError(x,x,fn:Add(fn:symGetTermName($fnItem)," 未定义函数."));
+				else if(fn:Eq($fn,0x20))
+					ChkError(x,x,fn:Add(fn:symGetTermName($fnItem)," 参数不匹配."));
+				else 
+				{
+					fn:bind($fnItem,$fn);
+					if(IsNodeName($base,"OpMethod"))
+						fn:setValue(fn:ChildNext($base,1),$fnItem);
+				}
+			}
+			
+			//清除参数类型
+			fn:setsize($typs,$oldsizetype);
+			
+			if($fnItem)
+			{
+				fn:pop($typs);
+				fn:push($typs,fn:symGetTermType($fnItem)); 
+			}
+			
+	
+			fn:pop($items);
+			if( $complier-state) return opCall(fn:top($typs,0),$base,$args);
+		}
+				
+		apply function-argument('(' ')') -> proc-function-call(0);
+		apply function-argument('(' argument-list(x) ')') -> proc-function-call(x);
+		
+		apply argument(x) -> 
+		{
+			let $size = fn:size($items);
+			let $exp = fn:apply(x);
+			if(fn:Neq($size,fn:size($items)))
+				fn:setsize($items,$size);
+			if( $complier-state)fn:AppendChildNode(fn:top($items,0),$exp);
+		}
+
+		//literal
+		apply primary-expression(lt) ->
+		{
+			fn:bind($lvalue,false);
+			settype(lt);
+			if( $complier-state)return opLiteral(fn:top($typs,0),lt);
+		}
+		
+		//expression	
+		apply primary-expression('(' exp ')' ) 	:= exp ; 
+
+		//处理变量项
+		apply proc-primary-expression(hItem tk) ->
+		{
+			fn:bind($lvalue,true);
+			if(fn:Lte(hItem,0))
+			{
+				ChkError(tk,tk, " 未定义变量.");
+				fn:push($typs,T("undef"));
+			}
+			else
+			{
+				if(fn:Eq(handle-kind(hItem),"method")) 
+				{
+					fn:push($typs,hItem);
+					if( $complier-state)
+					{
+						let $spec = fn:symGetMethodSpec(hItem);
+						if(fn:Not(fn:Band($spec,type_spec("static"))))
+							return opMethod(hItem,opThis()); 
+						else
+							return opMethod(hItem,opNill()); 
+					}
+				}
+				else
+				{
+					fn:push($typs,handle-type(hItem));
+					if( $complier-state)
+					{
+						let $spec = fn:symGetTermSpec(hItem);
+						//静态常数变量
+						if(fn:Band($spec,type_spec("static")))
+						{
+							if(fn:Band($spec,type_spec("const")))
+							{
+								return opLiteral(fn:top($typs,0),fn:symGetTermInitValue(hItem));
+							}
+						}
+						return opItem(fn:top($typs,0),hItem);
+					}
+				}
+			}
+			fn:bind($lvalue,true);
+		}
+				
+		//variant
+		apply primary-expression(qualified-id(unqualified-id(x)))->
+		{
+			var $hitem;
+			fn:bind($hitem,fn:context_get_word(fn:context_find_token(x)));
+			if(fn:Lte($hitem,0)) fn:bind($hitem,fn:symLookupItem($htype,x));
+			proc-primary-expression($hitem,x);
+		}
+		apply primary-expression(qualified-id(nest unqualified-id(x)))->
+		{
+			let $nest = proc-nested-name-specifier(nest);
+			proc-primary-expression(fn:symLookupItem($nest,x),x);
+		}
+		
+		apply primary-expression("this") ->
+		{
+			fn:bind($lvalue,true);
+			fn:push($typs,$htype);
+			if( $complier-state) return opThis();
+		}
+		
+		apply compound-statement('{''}') -> return opNill();
+		apply compound-statement('{' x '}') ->
+		{
+			var $oldsize;
+			fn:bind($oldsize, fn:size($items));
+			let $item = opCompStmt();
+			
+			for $t in x 
+			{
+				let $st = fn:apply($t);
+				if($complier-state) fn:AppendChildNode($item,$st);
+			}
+			if($complier-state) return $item;
+		}
+		
+		apply expression-statement(x ';') ->
+		{
+			let $exp = fn:apply(x);
+			if( $complier-state)return opExprStmt($exp);
+		}
+				
+		//bug 判断cnd是否为bool
+		apply proc_if_statement(cnd st sf) ->
+		{
+			let $cnd = fn:branch(cnd,	fn:apply(cnd),	opNill());
+			let $st 	= fn:branch(st,	fn:apply(st),	opNill());
+			let $sf 	= fn:branch(sf,	fn:apply(sf),	opNill());
+			
+			if( $complier-state) return opIf($cnd,$st,$sf);
+		}
+		
+		apply proc_for_statement(init cnd pinc st) ->
+		{
+			let $init 	= fn:branch(init,	fn:apply(init),	opNill());
+			let $cnd = fn:branch(cnd,	fn:apply(cnd),	opNill());
+			let $pinc = fn:branch(pinc,fn:apply(pinc),opNill());
+			let $st	= fn:branch(st,	fn:apply(st),	opNill());
+
+			if( $complier-state) return opFor($init,$cnd,$pinc,$st);
+		}
+			
+		apply proc_while_statement(cnd st) ->
+		{
+			let $cnd = fn:branch(cnd,	fn:apply(cnd),	opNill());
+			let $st	= fn:branch(st,	fn:apply(st),	opNill());
+			if( $complier-state) return opWhile($cnd,$st);
+		}
+			
+		apply proc_do_statement(cnd st) ->
+		{
+			let $st	= fn:branch(st,	fn:apply(st),	opNill());
+			let $cnd = fn:branch(cnd,	fn:apply(cnd),	opNill());
+			if( $complier-state) return opUntil($cnd,$st);
+		}
+			
+		//要判断返回类型是否与函数定义一致
+		apply proc-return-statement(e) ->
+		{
+			if(e)
+			{
+				let $exp = fn:apply(fn:child(e));
+				let $typ1 = fn:top($typs,0);
+				let $typ = fn:symGetTermType($hmethod);
+				if( $complier-state)
+				{
+					if(fn:Neq($typ1,$typ))
+						return opReturn(opCast($typ,$typ1,$exp));
+					else
+						return opReturn($exp);
+				}
+			}else
+				if( $complier-state) return opReturn();
+		}
+		//bug 要判断是否在循环内
+		apply proc-break-statement() ->
+		{
+				if( $complier-state) return opBreak();
+		}
+		//bug 要判断是否在循环内
+		apply proc-continue-statement() ->
+		{
+				if( $complier-state) return opContinue(); 
+		}
+	]
+]

@@ -1,0 +1,1576 @@
+use "process.xlang.vd"
+
+//?apply-statement-if	;
+//?declare-variant;
+//?class-define;
+//?function-define;
+//?apply-define;
+processor wpp_complier(node r)
+[
+	//数据长度
+	apply kByte := 0;
+	apply kWord := 1;
+	apply kDWord := 2;
+	apply kQDWord := 3;
+
+	//工具函数
+	apply BitPart(v p z)  -> fn:Band(fn:Shl(v,p),fn:Sub(fn:Shr(1,z) ,1));
+
+	//gen ModRM
+	apply ModRM(mod reg) -> fn:Bor(fn:Band(mod ,0xC7),fn:Shl(reg,3));
+	apply ModRM(mod reg rm)   ->fn:Bor(fn:Bor(fn:Shl(mod,6),fn:Shl(reg,3)),rm);
+	//gen sib
+	apply SIB(base index scale) ->fn:node(SIB,fn:Bor(fn:Bor(fn:Shl(scale,6),fn:Shl(index,3)),base));
+	
+	//定义寄存器
+	apply Register(x) 	-> fn:node(Register,x,2);
+	apply Register(x t) 	-> fn:node(Register,x,t);
+
+	//opcode
+	apply Opcode(x) ->fn:node(Opcode , x);
+	apply Opcode(cd d w) ->fn:node(Opcode, cd, d,w);
+	
+	//浮点字面量
+	apply FImm(v) ->fn:node(FImm,v,KQDWord);
+	
+	//构造直接数
+	apply Imm(v) ->fn:node(Imm, v , kDWord);
+	apply Imm(v t) ->fn:node(Imm,v,t);
+	apply Imm(v t s) ->fn:node(Imm,v,t,s);
+	//构造Displacement
+	apply Displacement(x) -> Imm(x);
+	apply Displacement(x t) -> Imm(x,t);
+	
+	//构造Address
+	apply Address(m s d) ->fn:node(Address, m, s, d);
+	apply Address(m s d b) ->fn:node(Address, m, s, d, b);
+	
+	
+	apply Address(Register(r b)) 						 -> Address(ModRM(0,0,r),  SIB(0,0,0), Imm(0));
+	apply Address(Imm(v t))							 -> Address(ModRM(0,0,5), SIB(0,0,0), Displacement(v,t)) ;
+	apply Address(Register(x b) v) 					 -> Address(ModRM(1,0,x), SIB(0,0,0), Displacement(v)) ;
+	apply Address(Register(x b) Imm(v t)) 		 ->
+	{
+		if(fn:And(fn:Lt(v,127),fn:Gt(v,fn:Neg(128))))
+			Address(ModRM(1,0,x), SIB(0,0,0), Displacement(v,kByte)) ;
+		else
+			Address(ModRM(2,0,x), SIB(0,0,0), Displacement(v,t)) ;
+	}
+	apply Address(Register(x b) 0) 					 -> Address(ModRM(0,0,x), SIB(0,0,0), Imm(0)) ;
+	apply Address(Register(x b) Imm(0 t)) 		 -> Address(ModRM(0,0,x), SIB(0,0,0), Imm(0)) ;
+	apply Address(Register(4/*esp*/ b) v) 			 -> Address(ModRM(2,0,4), SIB(0,4,4), Displacement(v)) ;
+	apply Address(Register(4/*esp*/ b) Imm(v t)) -> Address(ModRM(2,0,4), SIB(0,4,4), Displacement(v,t)) ;
+
+	//style as [register + imm] but not esp and ebp
+	apply	RegisterOfAddress(Address(m s d)) 	-> fn:Band(m,0x7);
+	apply	RegisterOfAddress(Address(m s d b)) 	-> RegisterOfAddress(Address(m,s,d));
+	
+	apply IsRegisterItem(x)	:= true;
+	apply IsRegisterItem(4)	:= false; //esp or sib
+	apply IsRegisterItem(5)	:= false; //ebp or display
+	apply IsRegisterAddress(Address(m s d)) 		-> IsRegisterItem(fn:Band(m,0x7));
+	apply IsRegisterAddress(Address(m s d b)) 	-> IsRegisterAddr(Address(m,s,d));
+	
+	apply Value(Register(r b)) := r ;
+	
+	//Lable
+	apply Label(x)					->	fn:node(LabelEx, fn:sureLabel(x));
+	apply Label(x y)				->	fn:node(LabelEx, fn:sureLabel(x), y);
+	apply LabelEx(x)				->	fn:node(LabelEx, x);
+	apply LabelEx(x y)			->	fn:node(LabelEx, x, y);
+	
+	apply Fct(n)					->	fn:node(Fct,n);
+	apply Fct(d n)					->	fn:node(Fct, d,n);
+
+	//寄存器堆栈
+	//apply sRegister(x) -> fn:print("\n----ask register ",x);
+	apply sRegister(1) -> Register(0,2); //eax
+	apply sRegister(2) -> Register(6,2); //esi
+	apply sRegister(3) -> Register(7,2); //edi
+	apply sRegisterCount() := 3;
+
+	//预留寄存器
+	apply bRegister -> Register(3,2); //ebx
+	//对象指针寄存器
+	apply tRegister -> Register(1,2); //ecx
+	//计算辅助寄存器
+	apply uRegister -> Register(2,2); //edx
+	
+	//寄存器常数
+	apply eax -> Register(0,2);
+	apply ecx -> Register(1,2);
+	apply edx -> Register(2,2);
+	apply ebx -> Register(3,2);
+	apply esp -> Register(4,2);
+	apply ebp -> Register(5,2);
+	apply esi  -> Register(6,2);
+	apply edi  -> Register(7,2);
+
+	apply ax -> Register(0,1);
+	apply cx -> Register(1,1);
+	apply dx -> Register(2,1);
+	apply bx -> Register(3,1);
+	apply sp -> Register(4,1);
+	apply bp -> Register(5,1);
+	apply si  -> Register(6,1);
+	apply di  -> Register(7,1);
+
+	apply al  -> Register(0,0);
+	apply cl  -> Register(1,0);
+	apply dl  -> Register(2,0);
+	apply bl  -> Register(3,0);
+	apply ah -> Register(4,0);
+	apply ch -> Register(5,0);
+	apply dh -> Register(6,0);
+	apply bh -> Register(7,0);
+
+	//转移条件
+	apply cOverflow     	:=  0; 
+	apply cNoOverflow  	:=  1; 
+	apply cBelow        	:=  2; 
+	apply cAboveEqual	:=  3; 
+	apply cEqual        	:=  4; 
+	apply cNotEqual     	:=  5; 
+	apply cBelowEqual 	:=  6;
+	apply cAbove        	:=  7;
+	apply cNegative     	:=  8;
+	apply cPositive     	:=  9;
+	apply cParityEven   	:= 10;
+	apply cParityOdd    	:= 11;
+	apply cLess         	:= 12;
+	apply cGreaterEqual	:= 13;
+	apply cLessEqual   	:= 14;
+	apply cGreater      	:= 15;
+
+	apply cCarry        	:= cBelow;
+	apply cNotCarry    	:= cAboveEqual;
+	apply cZero         	:= cEqual;
+	apply cNotZero     	:= cNotEqual;
+	apply cSign         	:= cNegative;
+	apply cNotSign     	:= cPositive;
+
+	//sse2
+	apply XMM(x)	-> fn:node(XMM,x);
+	apply xmm0		-> XMM(0);
+	apply xmm1		-> XMM(1);
+	apply xmm2		-> XMM(2);
+	apply xmm3		-> XMM(3);
+	apply xmm4		-> XMM(4);
+	apply xmm5		-> XMM(5);
+	apply xmm6		-> XMM(6);
+	apply xmm7		-> XMM(7);
+	
+	apply sXMM(1)  -> XMM(0);
+	apply sXMM(2)  -> XMM(1);
+	apply sXMM(3)  -> XMM(2);
+	apply sXMM(4)  -> XMM(3);
+	apply sXMM(5)  -> XMM(4);
+	apply sXMM(6)  -> XMM(5);
+	
+	apply bXMM(1)  -> XMM(6);
+	apply bXMM(2)  -> XMM(7);
+	apply bXMM(3)  -> XMM(8);
+	
+	apply emit(x) ->
+	{
+		fn:emitChar(x);
+	}
+	
+	apply emit(Opcode(x)) -> fn:emitChar(v);
+	//opcode cd d w
+	apply emit(Opcode(cd d 0)) ->fn:emitChar(fn:Bor(cd,fn:Shl(d,1)));
+	apply emit(Opcode(cd d 1)) ->
+	{
+		fn:emitChar(0x66);
+		fn:emitChar(fn:Bor(fn:Bor(cd,fn:Shl(d,1)),1));
+	}
+	apply emit(Opcode(cd d 2)) ->fn:emitChar(fn:Bor(fn:Bor(cd,fn:Shl(d,1)),1));
+	
+	apply emit(LabelEx(x)) ->
+	{
+		fn:toLabel(x);
+	}
+	
+	apply emit(LabelEx(x true)) ->
+	{
+		fn:toLabel(x,true);
+	}
+
+	apply emit(Fct(d n)) ->
+	{
+		fn:emitInteger(fn:function(d,n));
+	}
+	
+	apply emit(Fct(n)) ->
+	{
+		fn:emitInteger(fn:function(n));
+	}
+	
+	apply emit(Imm(v t)) ->
+	{
+		if(fn:Eq(t,kByte))
+			fn:emitChar(v);
+		else if(fn:Eq(t,kWord))
+			fn:emitShort(v);
+		else
+			fn:emitInteger(v);
+	}
+	apply emit(Address(m SIB(s) Imm(d t))) ->
+	{
+		emit(m);
+		if(fn:And(fn:Neq(fn:Band(m,0xC0),0xC0),fn:Eq(4/*esp*/,fn:Band(m,0x03))))
+			fn:emitChar(s);
+		if(fn:Neq(d,0))
+			emit(Imm(d,t));
+		
+		/*
+		Address * addr = 0;
+		addr = (Address *)&lhs;
+		if(addr->modrm.mod!=3 && addr->modrm.rm == esp.v)
+			*pc++ = *(unsigned char *)&addr->sib;
+		if(addr->disp.val) enterImm(addr->disp.sz,addr->disp);
+		*/
+		
+		//
+		/*if(lhs.kind ==kRegister && rhs.kind == kRegister) 
+		{
+			if(modrm) *pc++ = ModRM(3,lhs.v,rhs.v);
+			return;
+		}
+
+		int reg = -1;
+		if(lhs.kind == kRegister) 
+			reg = lhs.v;
+		else if(rhs.kind == kRegister)
+			reg = rhs.v;
+
+		Address * addr = 0;
+		if(lhs.kind == kAddress)
+			addr = (Address *)&lhs;
+		else if(rhs.kind == kAddress)
+			addr = (Address *)&rhs;
+
+		if(!addr)
+		{//mov reg  imm
+			
+		}else if(reg==-1)
+		{//mov mem imm
+			
+		}else
+		{
+			if(modrm)*pc++ = ModRM(addr->modrm.mod,reg,addr->modrm.rm);
+			if(addr->modrm.mod!=3 && addr->modrm.rm==esp.v)
+				*pc++ = *(unsigned char *)&addr->sib;
+			if(addr->modrm.mod==1)
+				enterImm(kByte,addr->disp);
+			else if(addr->modrm.mod==2)
+				enterImm(kDWord,addr->disp);
+			else if(addr->modrm.mod==0 && addr->modrm.rm==ebp.v)
+				enterImm(kDWord,addr->disp);
+		}*/
+	}
+
+	//guard
+	apply ErrorInstructionOprand(x) ->
+	{
+		fn:print("\r\nerror mov instruction format!\n");
+		fn:trace(x);
+	}
+	apply ErrorInstructionOprand(op x y) ->
+	{
+		fn:print("\r\nerror " ,op, " instruction format!\n lhs:\t");
+		fn:trace(x);
+		fn:print("\nrhs:\t");
+		fn:trace(y);
+	}
+	apply MOV(x y) 			->ErrorInstructionOprand("mov", x,y);
+	apply T_ADD(code x y) ->ErrorInstructionOprand("t_add",x,y);
+	apply PUSH(x) 			->ErrorInstructionOprand("push",x);
+	apply MUL(x y) 			->ErrorInstructionOprand("mul",x, y);
+	apply DIV(x y) 			->ErrorInstructionOprand("div",x, y);
+	apply IMUL(x y) 			->ErrorInstructionOprand("imul", x, y);
+	apply IDIV(x y) 			->ErrorInstructionOprand("idiv",x, y);
+	apply MOVD(x y) 		->ErrorInstructionOprand("movd",x, y);
+	apply TEST(x y) 			->ErrorInstructionOprand("test",x, y);
+
+	//register2 to register1 1000 101w : 11 reg1 reg2
+	//register1 to register2 1000 100w : 11 reg1 reg2
+	apply MOV(Register(r1 b) Register(r2 b)) ->
+	{
+		if(fn:Neq(r1,r2))
+		{
+			emit(Opcode(0x88, 1, b));
+			emit(ModRM(3,r1,r2));
+		}
+	}
+	//memory to reg1000 101w : mod reg r/m
+	//reg to memory1000 100w : mod reg r/m
+	apply MOV(Register(r b) Address(m s d)) ->
+	{
+		emit(Opcode(0x88, 1, b));
+		emit(Address(ModRM(m,r),s,d));
+	}
+	apply MOV(Address(m s d) Register(r b)) ->
+	{
+		emit(Opcode(0x88, 0, b));
+		emit(Address(ModRM(m,r),s,d));
+	}
+	
+	//memory to AL, AX, or EAX 1010 000w : full displacement 
+	//AL, AX, or EAX to memory 1010 001w : full displacement
+	apply MOV1(Register(0/*eax*/ b) Address(m s d))->
+	{
+		emit(Opcode(0x88, 0, b)); //?
+		emit(d);
+	}
+	apply MOV1(Address(m s d) Register(0/*eax*/ b) )->
+	{
+		emit(Opcode(0x88, 1, b)); //?
+		emit(d);
+	}
+	
+	apply MOV(Register(r b) Fct(d n)) ->
+	{
+		emit(Opcode(0xC4, 1, b));
+		emit(ModRM(3,0,r));
+		emit(Fct(d,n));
+	}
+	
+	apply MOV(Register(r b) Fct(n)) ->
+	{
+		emit(Opcode(0xC4, 1, b));
+		emit(ModRM(3,0,r));
+		emit(Fct(n));
+	}
+	
+	//immediate to register 1100 011w : 11 000 reg : immediate data 
+	apply MOV(Register(r b) Imm(v t)) ->
+	{
+		emit(Opcode(0xC4, 1, b));
+		emit(ModRM(3,0,r));
+		emit(Imm(v,b));
+	}
+
+	//immediate to memory 1100 011w : mod 000 r/m : immediate data
+	apply MOV(Address(m s d b) Imm(v t)) ->
+	{
+		emit(Opcode(0xC4, 1, b));
+		emit(Address(ModRM(m,0),s,d));
+		emit(Imm(v,b));
+	}
+	apply MOV(Address(m s d) Imm(v t)) ->
+	{
+		MOV(Address(m, s, d, kDWord) ,Imm(v, t));
+	}
+
+	//immediate to register (alternate encoding)1011 w reg : immediate data 
+	apply MOV(Register(r b) Imm(v t)) ->
+	{
+		if(fn:Eq(b,1)) emit(0x66);
+		if(fn:Eq(b,0))
+			emit(fn:Bor(0xB0,r));
+		else
+			emit(fn:Bor(0xB8,r));
+		emit(Imm(v, b));
+	}
+	
+	//register1 to register2 0000 000w : 11 reg1 reg2
+	//register2 to register1 0000 001w : 11 reg1 reg2
+	apply T_ADD(code Register(r1 b) Register(r2 b)) ->
+	{
+		emit(Opcode(code, 1, b));
+		emit(ModRM(3,r1,r2));
+	}
+
+	//memory to register 0000 001w : mod reg r/m
+	//register to memory 0000 000w : mod reg r/m
+	apply T_ADD(code Register(r b) Address(m s d)) ->
+	{
+		emit(Opcode(code, 1, b));
+		emit(Address(ModRM(m,r), s ,d));
+	}
+	apply T_ADD(code Address(m s d) Register(r b)) ->
+	{
+		emit(Opcode(code, 0, b));
+		emit(Address(ModRM(m,r), s ,d));
+	}
+	
+	//immediate to register 1000 00sw : 11 000 reg : 
+	apply T_ADD(rx Register(r b) Imm(v t signext)) ->
+	{
+		emit(Opcode(0x80,signext,b));
+		emit(ModRM(3,rx,r));
+		if(signext)
+			emit(Imm(v,kByte));
+		else
+			emit(Imm(v,b));
+	}
+	apply T_ADD(rx Register(r b) Imm(v t)) -> T_ADD(rx,Register(r,b), Imm(v,t,0));
+	
+		//immediate data immediate to AL, AX, or EAX 0000 010w : immediate data
+	apply T_ADD(code Register(0  b) Imm(v t)) -> //eax
+	{
+		emit(Opcode(fn:Bor(code,0x04),0,b));
+		emit(fn:node(Imm,v,b));
+	}
+	
+	//immediate to memory 1000 00sw : mod 000 r/m : immediate data
+	apply T_ADD(rx Address(m s d b) Imm(v t signext)) ->
+	{
+		emit(Opcode(0x80,signext,b));
+		emit(Address(ModRM(m,rx),s,d)); 
+		if(signext)
+			emit(Imm(v,kByte));
+		else
+			emit(Imm(v,b));
+	}
+	apply T_ADD(rx Address(m s d) Imm(v t)) -> T_ADD(rx, Address(m,s,d,2), Imm(v,t,0));
+
+
+	apply ADD(x y) -> T_ADD(0x00, x ,y);
+	apply ADC(x y) -> T_ADD(0x10, x ,y);
+	apply AND(x y) -> T_ADD(0x20, x ,y);
+	apply XOR(x y) -> T_ADD(0x30, x ,y);
+	apply OR(x y) 	 -> T_ADD(0x08, x ,y);
+	apply SBB(x y) -> T_ADD(0x18, x ,y);
+	apply SUB(x y) -> T_ADD(0x28, x ,y);
+	apply CMP(x y) -> T_ADD(0x38, x ,y);
+	
+	//imm
+	//ADD OR ADC SBB AND SUB XOR CMP
+	apply ADD(x Imm(v t)) 		-> T_ADD(0x0, x ,Imm(v, t));
+	apply ADC(x Imm(v t)) 		-> T_ADD(0x2, x ,Imm(v, t));
+	apply AND(x Imm(v t)) 		-> T_ADD(0x4, x ,Imm(v, t));
+	apply XOR(x Imm(v t)) 		-> T_ADD(0x6, x ,Imm(v, t));
+	apply OR(x  Imm(v t)) 	 		-> T_ADD(0x1, x ,Imm(v, t));
+	apply SBB(x Imm(v t)) 			-> T_ADD(0x3, x ,Imm(v, t,));
+	apply SUB(x Imm(v t)) 			-> T_ADD(0x5, x ,Imm(v, t,));
+	apply CMP(x Imm(v t)) 		-> T_ADD(0x7, x ,Imm(v, t,));
+	
+	apply ADD(x Imm(v t signext)) 	-> T_ADD(0x0, x ,Imm(v, t, signext));
+	apply ADC(x Imm(v t signext)) 	-> T_ADD(0x2, x ,Imm(v, t, signext));
+	apply AND(x Imm(v t signext)) 	-> T_ADD(0x4, x ,Imm(v, t, signext));
+	apply XOR(x Imm(v t signext)) 	-> T_ADD(0x6, x ,Imm(v, t, signext));
+	apply OR(x  Imm(v t  signext)) 	-> T_ADD(0x1, x ,Imm(v, t, signext));
+	apply SBB(x Imm(v t signext)) 	-> T_ADD(0x3, x ,Imm(v, t, signext));
+	apply SUB(x Imm(v t signext)) 	-> T_ADD(0x5, x ,Imm(v, t, signext));
+	apply CMP(x Imm(v t signext)) 	-> T_ADD(0x7, x ,Imm(v, t, signext));
+
+	//eax imm
+	apply ADD(Register(0  b) Imm(v t)) -> T_ADD(0x00,Register(0,b), Imm(v,t));
+	apply ADC(Register(0  b) Imm(v t)) -> T_ADD(0x10,Register(0,b), Imm(v,t));
+	apply AND(Register(0  b) Imm(v t)) -> T_ADD(0x20,Register(0,b), Imm(v,t));
+	apply XOR(Register(0  b) Imm(v t)) -> T_ADD(0x30,Register(0,b), Imm(v,t));
+	apply OR(Register(0  b)  Imm(v t)) -> T_ADD(0x08,Register(0,b), Imm(v,t));
+	apply SBB(Register(0  b) Imm(v t)) -> T_ADD(0x18,Register(0,b), Imm(v,t));
+	apply SUB(Register(0  b) Imm(v t)) -> T_ADD(0x28,Register(0,b), Imm(v,t));
+	apply CMP(Register(0  b) Imm(v t)) -> T_ADD(0x38,Register(0,b), Imm(v,t));
+	
+	/*
+	SHL – Shift Left
+	register by 1 1101 000w : 11 100 reg
+	memory by 1 1101 000w : mod 100 r/m
+	register by CL 1101 001w : 11 100 reg
+	memory by CL 1101 001w : mod 100 r/m
+	register by immediate count 1100 000w : 11 100 reg : imm8 data
+	memory by immediate count 1100 000w : mod 100 r/m : imm8 data
+	*/
+	apply SHL(Register(r b)) ->
+	{
+		emit(0xD1);
+		emit(ModRM(3,4,r));
+	}
+	
+	apply SHL(Register(r b) y) ->
+	{
+		MOV(edx,ecx);
+		MOV(ecx, y);
+		emit(0xD3);
+		emit(ModRM(3,4,r));
+		MOV(ecx,edx);
+	}
+	
+	apply SHL(Address(m s d) y) ->
+	{
+		MOV(edx,ecx);
+		MOV(ecx, y);
+		emit(0xD3);
+		emit(Address(ModRM(m,4),s,d));
+		MOV(ecx,edx);
+	}
+	apply SHL(Register(r b) Imm(v b)) ->
+	{
+		emit(0xC1);
+		emit(ModRM(3,4,r));
+		emit(Imm(v,kByte));
+	}
+	apply SHL(Address(m s d) Imm(v b)) ->
+	{
+		emit(0xC1);
+		emit(Address(ModRM(m,4),s,d));
+		emit(Imm(v,kByte));
+	}
+	
+	/*SHR – Shift Right
+	register by 1 1101 000w : 11 101 reg
+	memory by 1 1101 000w : mod 101 r/m
+	register by CL 1101 001w : 11 101 reg
+	memory by CL 1101 001w : mod 101 r/m
+	register by immediate count 1100 000w : 11 101 reg : imm8 data
+	memory by immediate count 1100 000w : mod 101 r/m : imm8 data
+	*/
+	apply SHR(Register(r b)) ->
+	{
+		emit(0xD1);
+		emit(ModRM(3,5,r));
+	}
+	
+	apply SHR(Register(r b) y) ->
+	{
+		MOV(edx,ecx);
+		MOV(ecx, y);
+		emit(0xD3);
+		emit(ModRM(3,5,r));
+		MOV(ecx,edx);
+	}
+	
+	apply SHL(Address(m s d) y) ->
+	{
+		MOV(edx,ecx);
+		MOV(ecx, y);
+		emit(0xD3);
+		emit(Address(ModRM(m,5),s,d));
+		MOV(ecx,edx);
+	}
+	apply SHL(Register(r b) Imm(v b)) ->
+	{
+		emit(0xC1);
+		emit(ModRM(3,5,r));
+		emit(Imm(v,kByte));
+	}
+	apply SHL(Address(m s d) Imm(v b)) ->
+	{
+		emit(0xC1);
+		emit(Address(ModRM(m,5),s,d));
+		emit(Imm(v,kByte));
+	}
+	
+	/*
+	JMP  Unconditional Jump (to same segment)
+		short	1110 1011 : 8-bit
+		displacement direct 1110 1001 : full displacement
+		register indirect 1111 1111 : 11 100 reg 
+		memory indirect 1111 1111 : mod 100 r/m 
+	JMP Unconditional Jump (to other segment)
+		direct intersegment 1110 1010 : unsigned full offset, selector 
+		indirect intersegment1111 1111 : mod 101 r/m
+	*/
+	//short	1110 1011 : 8-bit
+	apply JMP(Imm(v 0)) ->
+	{
+		emit(0xEB);
+		emit(Imm(v ,0));
+	}
+	//displacement direct 1110 1001 : full displacement
+	apply JMP(Imm(v 1)) ->
+	{
+		emit(0x66);
+		emit(0xE9);
+		emit(Imm(v,1));
+	}
+	apply JMP(Imm(v 2)) ->
+	{
+		emit(0xE9);
+		emit(Imm(v,2));
+	}
+	//register indirect 1111 1111 : 11 100 reg 
+	apply JMP(Register(r 1)) ->
+	{
+		emit(0x66);
+		emit(0xFF);
+		emit(ModRM(3,4,r));
+	}
+	apply JMP(Register(r 2)) ->
+	{
+		emit(0xFF);
+		emit(ModRM(3,4,r));
+	}
+	//memory indirect 1111 1111 : mod 100 r/m
+	apply JMP(Address(m s d))->
+	{
+		emit(0xFF);
+		emit(Address(ModRM(m,4), s, d));
+	}
+	
+	apply JMP(LabelEx(x))	->
+	{
+		//fn:print("\njmp ", x);
+		emit(0xe9);
+		emit(LabelEx(x));
+	}
+	
+	apply JCC(LabelEx(x) cnd)  ->
+	{
+		emit(0x0f);
+		emit(fn:Bor(0x80,cnd));
+		emit(LabelEx(x));
+	}
+	
+	//full displacement	0000 1111 : 1000 tttn : full displacement
+	apply JCC(Imm(v t) cnd) ->
+	{
+		emit(0x0f);
+		emit(fn:Bor(0x80,cnd));
+		emit(Imm(v,kDWord));
+	}
+	//8-bit displacement	0111 tttn : 8-bit displacement
+	apply JCC(Imm(v 0) cnd) ->
+	{
+		emit(fn:Bor(0x70,cnd));
+		emit(Imm(v,kByte));
+	}
+	
+	apply PUSH(Register(r 1))->
+	{
+		emit(0x66); //OP_PREFIX_SIZE
+		emit(ModRM(1,2,r));
+	}
+	
+	//register 1111 1111 : 11 110 reg
+	//push register (alternate encoding) 0101 0 reg
+	apply PUSH(Register(r 2))->
+	{
+		emit(ModRM(1,2,r));
+	}
+	
+	//push memory 1111 1111 : mod 110 r/m
+	apply PUSH(Address(m s d)) ->
+	{
+		emit(0xff);
+		emit(Address(ModRM(m,6),s,d));
+	}
+	//immediate 0110 10s0 : immediate data
+	apply PUSH(Imm(v t signext)) ->
+	{
+		emit(Opcode(0x68, signext, 0));
+		if(signext)
+			emit(Imm(v,kByte));
+		else
+			emit(Imm(v,kDWord));
+	}
+	apply PUSH(Imm(v t)) -> PUSH(Imm(v,t,0));
+	
+	//register 1000 1111 : 11 000 reg
+	//pop  register (alternate encoding)0101 1 reg
+	apply POP(Register(r b))->
+	{
+		emit(ModRM(1,3,r));
+	}
+	apply POP(Register(r 1))->
+	{
+		emit(0x66);
+		emit(ModRM(1,3,r));
+	}
+	
+	//pop  memory 1000 1111 : mod 000 r/m
+	apply POP(Address(m s d)) ->
+	{
+		emit(0x8f);
+		emit(Address(ModRM(m,0),s,d));
+	}
+	
+	//CALL – Call Procedure (in same segment)
+	//direct 1110 1000 : full displacement
+	//register indirect 1111 1111 : 11 010 reg
+	//memory indirect 1111 1111 : mod 010 r/m
+	//CALL – Call Procedure (in other segment)
+	//direct 1001 1010 : unsigned full offset, selector
+	//indirect 1111 1111 : mod 011 r/m
+	
+	apply  CALL(Fct(d n))	->
+	{
+		emit(0xff); //0xe8
+		emit(0x15);
+		emit(Fct(d,n));
+	}
+	
+	apply  CALL(Fct(n))	->
+	{
+		emit(0xff); //0xe8
+		emit(0x15);
+		emit(Fct(n));
+	}
+	
+	apply  CALL(LabelEx(x))	->
+	{
+		//emit(0xff); //0xe8
+		emit(0xe8);
+		//emit(0xff);
+		//emit(0x15);
+		emit(LabelEx(x));
+		//emit(Label(x,true));
+	}
+
+	apply  CALL(Register(r b)) ->
+	{
+		emit(0xff);
+		emit(ModRM(3,2,r));
+	}
+	
+	apply CALL(Imm(v t)) ->
+	{
+		//emit(0x2e); 
+		emit(0xff); //0xe8
+		emit(0x15);
+		emit(Imm(v,t));
+	}
+	
+	apply CALL(Address(m s d)) ->
+	{
+		emit(0xff);
+		emit(Address(ModRM(m,2),s,d));
+	}
+
+	//ret
+	apply RET() -> emit(0xC3);
+	apply RET(Imm(v t)) ->
+	{
+		emit(0xC2);
+		emit(Imm(v,kWord));
+	}
+	
+	//MUL AL, AX, or EAX with register 1111 011w : 11 100 reg 
+	//MUL AL, AX, or EAX with memory 1111 011w : mod 100 r/m
+	apply MUL(Address(m s d)) ->
+	{
+		emit(0xf7);
+		emit(ModRM(m,4));
+		emit(Address(ModRM(m,4),s,d));
+	}
+	apply MUL(Register(r b)) ->
+	{
+		emit(Opcode(0xf4, 1, b));
+		emit(ModRM(3,4,r));
+	}
+	apply MUL(Register(r1 b) Register(r2 b)) ->
+	{
+		XCHG(Register(r1,b),eax);
+		MUL(Register(r2,b));
+		XCHG(Register(r1,b),eax);
+		//edx?
+	}
+	apply MUL(Register(r1 b) Address(m s d)) ->
+	{
+		XCHG(Register(r1,b),eax);
+		MUL(Address(m,s,d));
+		XCHG(Register(r1,b),eax);
+		//edx?
+	}
+	apply MUL(Register(r1 b) Imm(v b)) ->
+	{
+		MOV(bRegister(),Imm(v,b));
+		MUL(Register(r1,b) , bRegister());
+		//edx?
+	}
+	
+	//DIV AL, AX, or EAX with register 1111 011w : 11 110 reg 
+	//DIV AL, AX, or EAX with memory 1111 011w : mod 110 r/m
+	apply DIV(Address(m s d)) ->
+	{
+		XOR(uRegister,uRegister);
+		emit(0xf7);
+		emit(Address(ModRM(m,6),s,d));
+	}
+	
+	apply DIV(Register(r b)) ->
+	{
+		XOR(uRegister,uRegister);
+		emit(Opcode(0xf4, 1, b));
+		emit(ModRM(3,6,r));
+	}
+	
+	apply DIV(Register(r1 b) Register(r2 b)) ->
+	{
+		XCHG(Register(r1,b),eax);
+		DIV(Register(r2,b));
+		XCHG(Register(r1,b),eax);
+		//edx?
+	}
+	apply DIV(Register(r1 b) Address(m s d)) ->
+	{
+		XCHG(Register(r1,b),eax);
+		DIV(Address(m,s,d));
+		XCHG(Register(r1,b),eax);
+		//edx?
+	}
+	apply DIV(Register(r1 b) Imm(v b)) ->
+	{
+		MOV(bRegister(),Imm(v,b));
+		DIV(Register(r1,b) , bRegister());
+		//edx?
+	}
+
+	//CDQ – Convert Doubleword to Qword
+	//1001 1001
+	apply CDQ() -> emit(0x99);
+
+	//IDIV – Signed Divide
+	//AL, AX, or EAX by register 1111 011w : 11 111 reg
+	//AL, AX, or EAX by memory 1111 011w : mod 111 r/m
+	apply IDIV(Address(m s d)) ->
+	{
+		CDQ();
+		emit(0xf7);
+		emit(Address(ModRM(m,7),s,d));
+	}
+	
+	apply IDIV(Register(r b)) ->
+	{
+		CDQ();
+		emit(Opcode(0xf4, 1, b));
+		emit(ModRM(3,7,r));
+	}
+	
+	apply IDIV(Register(r1 b) Register(r2 b)) ->
+	{
+		XCHG(Register(r1,b),eax);
+		IDIV(Register(r2,b));
+		XCHG(Register(r1,b),eax);
+		//edx?
+	}
+	apply IDIV(Register(r1 b) Address(m s d)) ->
+	{
+		XCHG(Register(r1,b),eax);
+		IDIV(Address(m,s,d));
+		XCHG(Register(r1,b),eax);
+		//edx?
+	}
+	apply IDIV(Register(r1 b) Imm(v b)) ->
+	{
+		MOV(bRegister(),Imm(v,b));
+		IDIV(Register(r1,b) , bRegister());
+		//edx?
+	}	
+	
+	//IMUL – Signed Multiply
+	//AL, AX, or EAX with register 1111 011w : 11 101 reg
+	//AL, AX, or EAX with memory 1111 011w : mod 101 reg
+	//register1 with register2 0000 1111 : 1010 1111 : 11 : reg1 reg2
+	//register with memory 0000 1111 : 1010 1111 : mod reg r/m
+	//register1 with immediate to register2 0110 10s1 : 11 reg1 reg2 : immediate data
+	//memory with immediate to register 0110 10s1 : mod reg r/m : immediate data
+	apply IMUL(Address(m s d)) ->
+	{
+		emit(0xf7);
+		emit(ModRM(m,5));
+		emit(Address(ModRM(m,4),s,d));
+	}
+	apply IMUL(Register(r b)) ->
+	{
+		emit(Opcode(0xf4, 1, b));
+		emit(ModRM(3,5,r));
+	}
+	apply IMUL(Register(r1 b) Register(r2 b)) ->
+	{
+		emit(0x0f);
+		emit(0xaf);
+		emit(ModRM(3,r1,r2));
+		//edx?
+	}
+	apply IMUL(Register(r1 b) Address(m s d)) ->
+	{
+		emit(0x0f);
+		emit(0xaf);
+		emit(Address(ModRM(m,r1),s,d));
+		//edx?
+	}
+	apply IMUL(Register(r1 b) Imm(v b)) ->
+	{
+		MOV(bRegister(),Imm(v,b));
+		IMUL(Register(r1,b) , bRegister());
+		//edx?
+	}	
+	
+	//INC reg	1111 111w : 11 000 reg
+	//INC reg (alternate encoding)0100 0 reg
+	//INC memory	1111 111w : mod 000 r/m
+	//DEC register	1111 111w : 11 001 reg 
+	//DEC register (alternate encoding)0100 1 reg
+	//DEC memory	1111 111w : mod 001 r/m
+	apply T_INC(code Register(r b))  ->emit(fn:Bor(code,r));
+	apply T_INC(rx Register(r 0)) ->
+	{
+		emit(0xfe);
+		emit(ModRM(3,rx,r));
+	}
+	apply T_INC(rx Address(m s d 0)) ->
+	{
+		emit(0xfe);
+		emit(Address(ModRM(m,rx), s, d));
+	}
+	apply T_INC(rx Address(m s d)) ->
+	{
+		emit(0xff);
+		emit(Address(ModRM(m,rx), s, d));
+	}
+	
+	apply INC(x)					-> T_INC(0,x);
+	apply DEC(x) 					-> T_INC(1,x);
+	apply INC(Register(r b))   	-> T_INC(0x40, Register(r,b));
+	apply DEC(Register(r b))   -> T_INC(0x48, Register(r,b));
+
+	//register1 with register2 1000 011w : 11 reg1 reg2
+	//AX or EAX with reg 1001 0 reg
+	//memory with reg 1000 011w : mod reg r/m
+	apply XCHG(Register(r1 b) Register(r2 b))  ->
+	{
+		if(fn:Neq(r1,r2))
+		{
+			emit(Opcode(0x84,1,b));
+			emit(ModRM(3,r1,r2));
+		}
+	}
+	apply XCHG(Register(r b))  -> emit(ModRM(2,2,r));
+	apply XCHG(Register(r b) Address(m s d))  ->
+	{
+		emit(Opcode(0x84,1,b));
+		emit(Address(ModRM(m,r), s, d));
+	}
+	
+	//LEA – Load Effective Address
+	//1000 1101 : modA reg r/m
+	apply LEA(Register(r b) Address(m s d)) ->
+	{
+		emit(0x8D);
+		emit(Address(ModRM(m,r),s,d));
+	}
+	
+	//NEG – Two's Complement Negation
+	//register 1111 011w : 11 011 reg
+	//memory 1111 011w : mod 011 r/m
+	apply NEG(Register(r b)) ->
+	{
+		emit(Opcode(0xf4,1,b));
+		emit(ModRM(3,3,r));
+	}
+	apply NEG(Address(m s d)) ->
+	{
+		//emit(Opcode(0xf4,1,b)); --error
+		emit(Opcode(0xf4,1,2));
+		emit(Address(ModRM(m,3),s,d));
+	}
+
+	//NOP – No Operation 1001 0000
+	apply NOP() -> emit(0x90);
+	
+	//NOT – One's Complement Negation
+	//register 1111 011w : 11 010 reg
+	//memory 1111 011w : mod 010 r/m
+	apply NOT(Register(r b)) ->
+	{
+		emit(Opcode(0xf4,1,b));
+		emit(ModRM(3,2,r));
+	}
+	apply NOT(Address(m s d)) ->
+	{
+		//emit(Opcode(0xf4,1,b)); -error
+		emit(Opcode(0xf4,1,2)); 
+		emit(Address(ModRM(m,2),s,d));
+	}
+	
+	apply BR() -> emit(0xCC);
+	
+	//TEST – Logical Compare
+	//register1 and register2 1000 010w : 11 reg1 reg2
+	//memory and register 1000 010w : mod reg r/m
+	//immediate and register 1111 011w : 11 000 reg : immediate data
+	//immediate and AL, AX, or EAX 1010 100w : immediate data
+	//immediate and memory 1111 011w : mod 000 r/m : immediate data
+	apply TEST(Register(r1 b) Register(r2 b)) ->
+	{
+		emit(Opcode(0x84,0,b));
+		emit(ModRM(3,r1,r2));
+	}
+	apply TEST(Register(r b) Address(m s d)) ->
+	{
+		emit(Opcode(0x84,0,b));
+		emit(Address(ModRM(m,r),s,d));
+	}
+	apply TEST(Address(m s d) Register(r b)) -> TEST(Register(r,b),Address(m,s,d));
+	apply TEST(Register(r b) Imm(v b)) ->
+	{
+		emit(Opcode(0xf4,1,b));
+		emit(ModRM(3,0,r));
+		emit(Imm(v,b));
+	}
+	apply TEST(Imm(v b) Register(r b) ) -> TEST(Register(r,b), Imm(v,b)) ;
+	apply TEST(Register(0 b) Imm(v b)) ->
+	{
+		emit(Opcode(0xa8,0,b));
+		emit(Imm(v,b));
+	}
+	apply TEST(Imm(v b) Register(0 b) ) -> TEST(Register(0,b), Imm(v,b)) ;
+	apply TEST(Imm(v b) Address(m s d)) ->
+	{
+		emit(Opcode(0xf4,1,b));
+		emit(Address(ModRM(m,0),s,d));
+		emit(Imm(v,b));
+	}
+	apply TEST(Address(m s d) Imm(v b)) -> TEST(Imm(v,b),Address(m,s,d));
+	
+	//SETcc – Byte Set on Condition
+	//register 0000 1111 : 1001 tttn : 11 000 reg
+	//memory 0000 1111 : 1001 tttn : mod 000 r/m
+	apply SET(Register(r b) cnd) ->
+	{
+		emit(0x0f);
+		emit(fn:Bor(0x90,cnd));
+		emit(ModRM(3,0,r));
+	}
+	apply SET(Address(m s d) cnd) ->
+	{
+		emit(0x0f);
+		emit(fn:Bor(0x90,cnd));
+		emit(Address(ModRM(m,r),s,d));
+	}
+	apply SET(x y cnd) ->
+	{
+		CMP(x,y);
+		SET(eax,cnd);
+		AND(eax,Imm(0xff));
+	}
+	
+	//sse2
+	//MOVD—Move Doubleword
+	//reg to xmmreg 0110 0110:0000 1111:0110 1110: 11 xmmreg reg
+	//reg from xmmreg 0110 0110:0000 1111:0111 1110: 11 xmmreg reg
+	//mem to xmmreg 0110 0110:0000 1111:0110 1110: mod xmmreg r/m
+	//mem from xmmreg 0110 0110:0000 1111:0111 1110: mod xmmreg r/m
+	apply MOVD(XMM(x) Register(r b)) ->
+	{
+		emit(0x66);
+		emit(0x0f);
+		emit(0x6e);
+		emit(ModRM(3,x,r));
+	}
+	
+	apply MOVD(Register(r b) XMM(x)) ->
+	{
+		emit(0x66);
+		emit(0x0f);
+		emit(0x7e);
+		emit(ModRM(3,x,r));
+	}
+	
+	apply MOVD(XMM(x) Address(m s d)) ->
+	{
+		emit(0x66);
+		emit(0x0f);
+		emit(0x6e);
+		emit(Address(ModRM(m,x),s,d));
+	}
+	
+	apply MOVD(Address(m s d) XMM(x)) ->
+	{
+		emit(0x66);
+		emit(0x0f);
+		emit(0x7e);
+		emit(Address(ModRM(m,x),s,d));
+	}
+	
+	//MOVQ—Move Quadword
+	//xmmreg2 to xmmreg1 1111 0011:0000 1111:0111 1110: 11 xmmreg1 xmmreg2
+	//xmmreg2 from xmmreg1 0110 0110:0000 1111:1101 0110: 11 xmmreg1 xmmreg2
+	//mem to xmmreg 1111 0011:0000 1111:0111 1110: mod xmmreg r/m
+	//mem from xmmreg 0110 0110:0000 1111:1101 0110: mod xmmreg r/m
+	apply MOVQ(XMM(x0) XMM(x1)) -> 
+	{
+		emit(0xf3);
+		emit(0x0f);
+		emit(0x7e);
+		emit(ModRM(3,x0,x1));
+	}
+	apply MOVQ(XMM(x) Address(m s b)) -> 
+	{
+		emit(0xf3);
+		emit(0x0f);
+		emit(0x7e);
+		emit(Address(ModRM(m,x),s,d));
+	}
+	apply MOVQ(Address(m s b) XMM(x)) -> 
+	{
+		emit(0x66);
+		emit(0x0f);
+		emit(0xd6);
+		emit(Address(ModRM(m,x),s,d));
+	}
+	
+	//MOVSD—Move Scalar Double-Precision Floating-Point Values
+	//xmmreg1 to xmmreg2 1111 0010:0000 1111:0001 0001:11 xmmreg2 xmmreg1
+	//xmmreg1 to mem 1111 0010:0000 1111:0001 0001: mod xmmreg r/m
+	//xmmreg2 to xmmreg1 1111 0010:0000 1111:0001 0000:11 xmmreg1 xmmreg2
+	//mem to xmmreg1 1111 0010:0000 1111:0001 0000: mod xmmreg r/m
+	apply MOVSD(x: XMM y:XMM) 			-> OPSD(0x10,x,y);
+	apply MOVSD(x : Address y :XMM) 		-> OPSD(0x11,x,y);
+	apply MOVSD(x: XMM y : Address) 		-> OPSD(0x10,x,y);
+		
+	//sse2 base binary op
+	apply OPPD(cd XMM(x1) XMM(x2)) ->
+	{
+		emit(0x66);
+		emit(0x0f);
+		emit(cd);
+		emit(ModRM(3,x1,x2));
+	}
+	apply OPPD(cd XMM(x) Address(m s d)) ->
+	{
+		emit(0x66);
+		emit(0x0f);
+		emit(cd);
+		emit(Address(ModRM(m,x),s,d));
+	}
+	apply OPPD(cd  Address(m s d) XMM(x)) ->
+	{
+		emit(0x66);
+		emit(0x0f);
+		emit(cd);
+		emit(Address(ModRM(m,x),s,d));
+	}
+	
+	apply OPSD(cd XMM(x1) XMM(x2)) ->
+	{
+		emit(0xf2);
+		emit(0x0f);
+		emit(cd);
+		emit(ModRM(3,x1,x2));
+	}
+	apply OPSD(cd Register(x1 b) XMM(x2)) ->
+	{
+		emit(0xf2);
+		emit(0x0f);
+		emit(cd);
+		emit(ModRM(3,x1,x2));
+	}
+	
+	apply OPSD(cd XMM(x1) Register(x2 b)) ->
+	{
+		emit(0xf2);
+		emit(0x0f);
+		emit(cd);
+		emit(ModRM(3,x1,x2));
+	}
+	
+	apply OPSD(cd XMM(x) Address(m s d))  ->
+	{
+		emit(0xf2);
+		emit(0x0f);
+		emit(cd);
+		emit(Address(ModRM(m,x),s,d));
+	}
+	
+	apply OPSD(cd Address(m s d) XMM(x) )  ->
+	{
+		emit(0xf2);
+		emit(0x0f);
+		emit(cd);
+		emit(Address(ModRM(m,x),s,d));
+	}
+	
+	apply OPSD(cd Register(x b) Address(m s d))  ->
+	{
+		emit(0xf2);
+		emit(0x0f);
+		emit(cd);
+		emit(Address(ModRM(m,x),s,d));
+	}
+	
+	apply OPSD(cd Address(m s d) Register(x b) )  ->
+	{
+		emit(0xf2);
+		emit(0x0f);
+		emit(cd);
+		emit(Address(ModRM(m,x),s,d));
+	}
+	
+	//ADDPD—Add Packed Double-Precision Floating-Point Values
+	//xmmreg2 to xmmreg1 0110 0110:0000 1111:0101 1000:11 xmmreg1 xmmreg2
+	//mem to xmmreg         0110 0110:0000 1111:0101 1000: mod xmmreg r/m
+	apply ADDPD(x y) -> OPPD(0x58,x,y);
+	
+	//ADDSD—Add Scalar Double-Precision Floating-Point Values
+	//xmmreg2 to xmmreg1 1111 0010:0000 1111:0101 1000:11 xmmreg1 xmmreg2
+	//mem to xmmreg 1111 0010:0000 1111:0101 1000: mod xmmreg r/m
+	apply ADDSD(x y) -> OPSD(0x58,x,y);
+	
+	//ANDNPD—Bitwise Logical AND NOT of Packed Double-Precision Floating-Point Values
+	//xmmreg2 to xmmreg1 0110 0110:0000 1111:0101 0101:11 xmmreg1 xmmreg2
+	//mem to xmmreg 0110 0110:0000 1111:0101 0101: mod xmmreg r/m
+	apply ANDNPD(x y) -> OPPD(0x55,x,y);
+	
+	//ANDPD—Bitwise Logical AND of Packed Double-Precision Floating-Point Values
+	//xmmreg2 to xmmreg1 0110 0110:0000 1111:0101 0100:11 xmmreg1 xmmreg2
+	//mem to xmmreg 0110 0110:0000 1111:0101 0100: mod xmmreg r/m
+	apply ANDPD(x y) -> OPPD(0x54,x,y);
+	
+	//CMPPD—Compare Packed Double-Precision Floating-Point Values
+	//xmmreg2 to xmmreg1, imm8 0110 0110:0000 1111:1100 0010:11 xmmreg1 xmmreg2: imm8
+	//mem to xmmreg, imm8 0110 0110:0000 1111:1100 0010: mod xmmreg r/m: imm8
+	apply CMPPD(x y ib) -> OPPD(0xc2,x,y),emit(ib);
+		
+	//CMPSD—Compare Scalar Double-Precision Floating-Point Values
+	//xmmreg2 to xmmreg1, imm8 1111 0010:0000 1111:1100 0010:11 xmmreg1 xmmreg2: imm8
+	//mem to xmmreg, imm8 11110 010:0000 1111:1100 0010: mod xmmreg r/m: imm8
+	apply CMPPD(x y) -> OPSD(0xc2,x,y),emit(ib);
+	
+	//COMISD—Compare Scalar Ordered Double-Precision Floating-Point Values and Set EFLAGS
+	//xmmreg2 to xmmreg1 0110 0110:0000 1111:0010 1111:11 xmmreg1 xmmreg2
+	//mem to xmmreg 0110 0110:0000 1111:0010 1111: mod xmmreg r/m
+	apply COMISD(x y) ->OPPD(0x2F,x,y);
+	
+	//转化为浮点数
+	//CVTPI2PD—Convert Packed Doubleword Integers to Packed Double-Precision Floating-Point Values
+	//mmreg to xmmreg 0110 0110:0000 1111:0010 1010:11 xmmreg1 mmreg1
+	//mem to xmmreg 0110 0110:0000 1111:0010 1010: mod xmmreg r/m
+	apply CVTPI2PD(x y) ->OPPD(0x2A,x,y);
+	
+	//转化为整形
+	//CVTPD2PI—Convert Packed Double-Precision Floating-Point Values to Packed Doubleword Integers
+	//xmmreg to mmreg 0110 0110:0000 1111:0010 1101:11 mmreg1 xmmreg1
+	//mem to mmreg 0110 0110:0000 1111:0010 1101: mod mmreg r/m
+	apply CVTPD2PI(x y) ->OPPD(0x2D,x,y);
+	
+	//转化为浮点数
+	//CVTSI2SD—Convert Doubleword Integer to Scalar Double-Precision Floating-Point Value
+	//r32 to xmmreg1 1111 0010:0000 1111:0010 1010:11 xmmreg r32
+	//mem to xmmreg 1111 0010:0000 1111:0010 1010: mod xmmreg r/m
+	apply CVTSI2SD(x y) ->OPSD(0x2A,x,y);
+	
+	//转化为整形
+	//CVTSD2SI—Convert Scalar Double-Precision 	Floating-Point Value to Doubleword Integer
+	//xmmreg to r32 1111 0010:0000 1111:0010 1101:11 r32 xmmreg
+	//mem to r32 1111 0010:0000 1111:0010 1101: mod r32 r/m
+	apply CVTSD2SI(x y) ->OPSD(0x2D,x,y);
+	
+	//CVTTPD2PI—Convert with Truncation Packed Double-Precision Floating-Point Values to Packed Doubleword Integers
+	//xmmreg to mmreg 0110 0110:0000 1111:0010 1100:11 mmreg xmmreg
+	//mem to mmreg 0110 0110:0000 1111:0010 1100: mod mmreg r/m
+	apply CVTPD2SI(x y) ->OPPD(0x2C,x,y);
+	
+	//CVTTSD2SI—Convert with Truncation Scalar Double-Precision Floating-Point Value to Doubleword Integer
+	//xmmreg to r32 1111 0010:0000 1111:0010 1100:11 r32 xmmreg
+	//mem to r32 1111 0010:0000 1111:0010 1100: mod r32 r/m
+	apply CVTTSD2SI(x y) ->OPSD(0x2C,x,y);
+	
+	/*
+	CVTPD2PS—Covert Packed Double-Precision 	Floating-Point Values to Packed Single-Precision Floating-Point Values
+	xmmreg2 to xmmreg1 0110 0110:0000 1111:0101 1010:11 xmmreg1 xmmreg2
+	mem to xmmreg 0110 0110:0000 1111:0101 1010: mod xmmreg r/m
+	
+	CVTPS2PD—Covert Packed Single-Precision Floating-Point Values to Packed Double-Precision Floating-Point Values
+	xmmreg2 to xmmreg1 0000 1111:0101 1010:11 xmmreg1 xmmreg2
+	mem to xmmreg 0000 1111:0101 1010: mod xmmreg r/m
+	
+	CVTSD2SS—Covert Scalar Double-Precision Floating-Point Value to Scalar Single-Precision Floating-Point Value
+	xmmreg2 to xmmreg1 1111 0010:0000 1111:0101 1010:11 xmmreg1 xmmreg2
+	mem to xmmreg 1111 0010:0000 1111:0101 1010: mod xmmreg r/m
+	
+	CVTSS2SD—Covert Scalar Single-Precision Floating-Point Value to Scalar Double-Precision Floating-Point Value
+	xmmreg2 to xmmreg1 1111 0011:0000 1111:0101 1010:11 xmmreg1 xmmreg2
+	mem to xmmreg 1111 0011:00001 111:0101 1010: mod xmmreg r/m
+	
+	CVTPD2DQ—Convert Packed Double-Precision Floating-Point Values to Packed Doubleword Integers
+	xmmreg2 to xmmreg1 1111 0010:0000 1111:1110 0110:11 xmmreg1 xmmreg2
+	mem to xmmreg 1111 0010:0000 1111:1110 0110: mod xmmreg r/m
+	
+	CVTTPD2DQ—Convert With Truncation Packed Double-Precision Floating-Point Values to Packed Doubleword Integers
+	xmmreg2 to xmmreg1 0110 0110:0000 1111:1110 0110:11 xmmreg1 xmmreg2
+	mem to xmmreg 0110 0110:0000 1111:1110 0110: mod xmmreg r/m
+	
+	CVTDQ2PD—Convert Packed Doubleword Integers to Packed Single-Precision Floating-Point Values
+	xmmreg2 to xmmreg1 1111 0011:0000 1111:1110 0110:11 xmmreg1 xmmreg2
+	mem to xmmreg 1111 0011:0000 1111:1110 0110: mod xmmreg r/m
+	
+	CVTPS2DQ—Convert Packed Single-Precision Floating-Point Values to Packed Doubleword Integers
+	xmmreg2 to xmmreg1 0110 0110:0000 1111:0101 1011:11 xmmreg1 xmmreg2
+	mem to xmmreg 0110 0110:0000 1111:0101 1011: mod xmmreg r/m
+	
+	CVTTPS2DQ—Convert With Truncation Packed Single-Precision Floating-Point Values to Packed Doubleword Integers
+	xmmreg2 to xmmreg1 1111 0011:0000 1111:0101 1011:11 xmmreg1 xmmreg2
+	mem to xmmreg 1111 0011:0000 1111:0101 1011: mod xmmreg r/m
+	
+	CVTDQ2PS—Convert Packed Doubleword Integers to Packed Double-Precision Floating-Point Values
+	xmmreg2 to xmmreg1 0000 1111:0101 1011:11 xmmreg1 xmmreg2
+	mem to xmmreg 0000 1111:0101 1011: mod xmmreg r/m
+	*/	
+	
+	//取大值
+	//MAXPD—Return Maximum Packed Double-Precision	Floating-Point Values
+	//xmmreg2 to xmmreg1 0110 0110:0000 1111:0101 1111:11 xmmreg1 xmmreg2
+	//mem to xmmreg 0110 0110:0000 1111:0101 1111: mod xmmreg r/m
+	apply  MAXPD(x y) -> OPPD(0x5F,x,y);
+	
+	//MAXSD—Return Maximum Scalar Double-Precision Floating-Point Value
+	//xmmreg2 to xmmreg1 1111 0010:0000 1111:0101 1111:11 xmmreg1 xmmreg2
+	//mem to xmmreg 1111 0010:0000 1111:0101 1111: mod xmmreg r/m
+	apply  MAXPD(x y) -> OPSD(0x5F,x,y);
+	
+	//取小值
+	//MINPD—Return Minimum Packed Double-Precision Floating-Point Values
+	//xmmreg2 to xmmreg1 0110 0110:0000 1111:0101 1101:11 xmmreg1 xmmreg2
+	//mem to xmmreg 0110 0110:0000 1111:0101 1101: mod xmmreg r/m
+	apply  MINPD(x y) -> OPPD(0x5D,x,y);
+	
+	//MINSD—Return Minimum Scalar Double-Precision Floating-Point Value
+	//xmmreg2 to xmmreg1 1111 0010:0000 1111:0101 1101:11 xmmreg1 xmmreg2
+	//mem to xmmreg 1111 0010:0000 1111:0101 1101: mod xmmreg r/m
+	apply  MINSD(x y) -> OPPD(0x5D,x,y);
+
+	//除法运算
+	//DIVPD—Divide Packed Double-Precision Floating-Point Values
+	//xmmreg2 to xmmreg1 0110 0110:0000 1111:0101 1110:11 xmmreg1 xmmreg2
+	//mem to xmmreg 0110 0110:0000 1111:0101 1110: mod xmmreg r/m
+	apply  DIVPD(x y) -> OPPD(0x5E,x,y);
+	
+	//DIVSD—Divide Scalar Double-Precision Floating-Point Values
+	//xmmreg2 to xmmreg1 1111 0010:0000 1111:0101 1110:11 xmmreg1 xmmreg2
+	//mem to xmmreg 1111 0010:0000 1111:0101 1110: mod xmmreg r/m
+	apply  DIVSD(x y) -> OPSD(0x5E,x,y);
+
+	//乘法运算
+	//MULPD—Multiply Packed Double-Precision Floating-Point Values
+	//xmmreg2 to xmmreg1 0110 0110:0000 1111:0101 1001:11 xmmreg1 xmmreg2
+	//mem to xmmreg 0110 0110:0000 1111:0101 1001: mod xmmreg r/m
+	apply MULPD(x y) ->OPPD(0x59,x,y);
+	
+	//MULSD—Multiply Scalar Double-Precision Floating-Point Values
+	//xmmreg2 to xmmreg1 1111 0010:00001111:01011001:11 xmmreg1 xmmreg2
+	//mem to xmmreg 1111 0010:00001111:01011001: mod xmmreg r/m
+	apply MULSD(x y) ->OPSD(0x59,x,y);
+	
+	//减法运算
+	//SUBPD—Subtract Packed Double-Precision Floating-Point Values
+	//xmmreg2 to xmmreg1 0110 0110:0000 1111:0101 1100:11 xmmreg1 xmmreg2
+	//mem to xmmreg 0110 0110:0000 1111:0101 1100: mod xmmreg r/m
+	apply SUBPD(x y) ->OPPD(0x5C,x,y);
+	
+	//SUBSD—Subtract Scalar Double-Precision Floating-Point Values
+	//xmmreg2 to xmmreg1 1111 0010:0000 1111:0101 1100:11 xmmreg1 xmmreg2
+	//mem to xmmreg 1111 0010:0000 1111:0101 1100: mod xmmreg r/m
+	apply SUBSD(x y) ->OPSD(0x5C,x,y);
+
+	//异或运算
+	//XORPD—Bitwise Logical OR of Double-Precision Floating-Point Values
+	//xmmreg2 to xmmreg1 0110 0110:0000 1111:0101 0111:11 xmmreg1 xmmreg2
+	//mem to xmmreg 0110 0110:0000 1111:0101 0111: mod xmmreg r/m
+	apply XORPD(x y) ->OPPD(0x57,x,y);
+	
+	//浮点数或操作？
+	//ORPD—Bitwise Logical OR of Double-Precision Floating-Point Values
+	//xmmreg2 to xmmreg1 0110 0110:0000 1111:0101 0110:11 xmmreg1 xmmreg2
+	//mem to xmmreg 0110 0110:0000 1111:0101 0110: mod xmmreg r/m
+	apply ORPD(x y) ->OPPD(0x56,x,y);
+	
+	//开平方
+	//SQRTPD—Compute Square Roots of Packed Double-Precision Floating-Point Values
+	//xmmreg2 to xmmreg1 0110 0110:0000 1111:0101 0001:11 xmmreg1 xmmreg2
+	//mem to xmmreg 0110 0110:0000 1111:0101 0001: mod xmmreg r/m
+	apply SQRTPD(x y) ->OPPD(0x51,x,y);
+	
+	//SQRTSD—Compute Square Root of Scalar Double-Precision Floating-Point Value
+	//xmmreg2 to xmmreg1 1111 0010:0000 1111:0101 0001:11 xmmreg1 xmmreg2
+	//mem to xmmreg 1111 0010:0000 1111:0101 0001: mod xmmreg r/m
+	apply SQRTSD(x y) ->OPSD(0x51,x,y);
+	
+	//浮点操作
+	//FSTP – Store Real and Pop
+	//32-bit memory 11011 001 : mod 011 r/m
+	//64-bit memory 11011 101 : mod 011 r/m
+	//80-bit memory 11011 011 : mod 111 r/m
+	//ST(i) 11011 101 : 11 011 ST(i)
+	apply FSTP(Address(m s b)) ->
+	{
+		emit(0xDD);
+		emit(Address(ModRM(m,3),s,b));
+	}
+
+	apply LABEL(x)				-> fn:label(x);
+	
+	//归一化
+	apply MOV(x : XMM y : XMM) 			-> if(fn:Neq(fn:child(x),fn:child(y))) MOVSD(x ,y);
+	apply MOV(x : Address y :XMM) 			-> MOVSD(x,y);
+	apply MOV(x :XMM  y : Address) 		-> MOVSD(x,y);
+	apply ADD(x: XMM y : XMM)				-> ADDSD(x,y);
+	apply SUB(x: XMM y : XMM)				-> SUBSD(x,y);
+	apply IMUL(x: XMM y : XMM)				-> MULSD(x,y);
+	apply IDIV(x: XMM y : XMM)				-> DIVSD(x,y);
+	apply SQRT(x: XMM y : XMM)				-> SQRTSD(x,y);
+	apply XOR(x: XMM y : XMM)				-> XORSD(x,y);
+	apply ADD(x: XMM y : Address)			-> ADDSD(x,y);
+	apply SUB(x: XMM y : Address)			-> SUBSD(x,y);
+	apply IMUL(x: XMM y : Address)			-> MULSD(x,y);
+	apply IDIV(x: XMM y : Address)			-> DIVSD(x,y);
+	apply SQRT(x: XMM y : Address)		-> SQRTSD(x,y);
+	apply XOR(x: XMM y : Address)			-> XORSD(x,y);
+	
+	apply SET(x:XMM y:XMM cnd)					->
+	{
+		COMISD(x,y);
+		SET(eax,cnd);
+		AND(eax,Imm(0xff));
+	}
+	apply SET(x:XMM y:Address cnd)					->
+	{
+		COMISD(x,y);
+		SET(eax,cnd);
+		AND(eax,Imm(0xff));
+	}
+	
+	//借助预留寄存器操作
+	apply MOV(x: XMM  v : Imm) 		-> 
+	{
+		MOV(ebx,v);
+		CVTSI2SD(sXMM(1),ebx);
+		MOVSD(x,sXMM(1));
+	}
+	
+	apply ADD(x: XMM  v : Imm)			-> 
+	{
+		MOV(ebx,v);
+		CVTSI2SD(sXMM(1),ebx);
+		ADDSD(x,sXMM(1));
+	}
+	apply SUB(x: XMM v : Imm)			-> 
+	{
+		MOV(ebx,v);
+		CVTSI2SD(sXMM(1),ebx);
+		SUBSD(x,sXMM(1));
+	}
+	apply IMUL(x: XMM  v : Imm)			-> 
+	{
+		MOV(ebx,v);
+		CVTSI2SD(sXMM(1),ebx);
+		MULSD(x,sXMM(1));
+	}
+	apply IDIV(x: XMM v : Imm)			-> 
+	{
+		MOV(ebx,v);
+		CVTSI2SD(sXMM(1),ebx);
+		DIVSD(x,sXMM(1));
+	}
+	
+	apply NEG(x: XMM y : XMM)				->
+	{
+		let $r = y;
+		if(IsSameRegister(x,y))
+		{
+			fn:bind($r,bXMM(1));
+			MOV($r,y);
+		}
+		XOR(x,x);
+		SUB(x,$r);
+	}
+	apply NEG(x: XMM y : Address)			->
+	{
+		XOR(x,x);
+		SUB(x,y);
+	}
+			
+	apply EnterFrame()	->
+	{
+		PUSH(ebp);
+		MOV(ebp,esp);
+		PUSH(esp);
+		SUB(esp,Imm(0x128));
+		PUSH(ebx);
+		PUSH(esi);
+		PUSH(edi);
+		//save this
+		MOV(Address(ebp, Imm(fn:Neg(4))),ecx);
+	}
+	
+	apply LeaveFrame(x)	->
+	{
+		//MOVD(xmm0,eax);
+		//MOVD(eax,xmm0);
+		
+		POP(edi);
+		POP(esi);
+		POP(ebx);
+		ADD(esp,Imm(0x128));
+		MOV(esp,ebp); 
+		POP(ebp);
+		RET(Imm(x));		
+	}
+	
+	apply test-code() ->
+	{
+		LABEL(myTest);
+		
+		PUSH(ebp);
+		MOV(ebp,esp);
+		PUSH(esp);
+		SUB(esp,Imm(0x32));
+		PUSH(ebx);
+		PUSH(esi);
+		PUSH(edi);
+	
+		PUSH(Imm(0));
+		MOV(eax,Address(ebp, 8));
+		PUSH(eax);
+		MOV(eax,Address(ebp, 12));
+		PUSH(eax);
+		PUSH(Imm(0));
+		MOV(eax,Fct(MessageBox)); 
+		CALL(eax);
+
+		/*
+		MOV(eax,Imm(0)); //(int)(unsigned int)test_call2
+		CALL(eax);
+
+		MOV(eax,Imm(0x80));
+		MOV(ecx,Imm(0x10));
+		MUL(ecx);
+
+		INC(eax);
+		INC(al);
+		DEC(eax);
+		DEC(al);
+		
+		INC(eax);
+		DEC(eax);
+		INC(Address(eax,0x100));
+		DEC(Address(eax,0x400));
+
+		LABEL(L1);
+		JMP(Label(L2));
+		JMP(Imm(0x240012));
+		JMP(eax);
+		JMP(Address(ebx,0x240012));
+
+		JCC(Label(L1),cEqual);
+		
+		JCC(Label(L2),cAboveEqual);
+
+		LABEL(L2);*/
+		
+		
+		POP(edi);
+		POP(esi);
+		POP(ebx);
+		ADD(esp,Imm(0x32));
+		MOV(esp,ebp); 
+		POP(ebp);
+		RET(Imm(8));		
+		
+		LABEL(main);
+		PUSH(Imm("this is test"));
+		PUSH(Imm("caption"));
+		CALL(Label(myTest));
+		RET();
+		fn:code-eval(main);
+		
+		//fn:debugbreak();
+	}
+	
+	//apply PUSH(list(x y) ,z) ->
+]

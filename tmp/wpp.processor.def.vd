@@ -1,0 +1,75 @@
+use "wpp.xlang.vd"
+use "process.xlang.vd"
+
+//?apply-statement-if;
+//?declare-variant;
+//?class-define;
+//?function-define;
+//?apply-define;
+processor wpp_complier(node r)
+[
+	//import "wpp.ia32.processor.vd";
+	//using processor wpp_ia32; 
+	
+	//当$complier-state=1表示可以生成代码
+	var $complier-state;
+	
+	//当$trace-code=1显示汇编码
+	var $trace-code;
+	
+	//当$trace-object=1显示对象
+	var $trace-object;
+	
+	//当前正在编译的类对象句柄
+	var $htype;
+	//正在编译的命名空间
+	var list $hnamespaces;
+	//正在编译的方法
+	var $hmethod;
+	
+	var $base;
+	//var $type;
+	//var $name;
+	var $param;
+	var $scope;
+	var $hopelvalue;
+	
+	//当前正在处理的项是可被引用
+	var $lvalue;
+	
+	//正在处理的项及数据类型
+	var list $items;
+	var list $typs;
+	
+	//正在处理的复合项
+	var $hCompType;
+	var $textrow;
+	var $textcol;
+	
+	//用于合并多个规格项
+	//var $spec;
+	
+	//返回的Label
+	var $retlabel;
+	//控制流的Label
+	var list $breaklabels;
+	var list $continuelabels;
+	
+	var $typeid;
+	var $typearr;
+	
+	//用于合并多个nest项.
+	//var $nest;
+	
+	var list $methods;
+	
+	//var $dumpSym;
+	
+	apply varInitial()->
+	{
+		fn:bind($hmethod ,0);
+		fn:bind($htype, 0);
+		fn:bind($lvalue ,0);
+		fn:bind($complier-state ,0);
+	}
+]

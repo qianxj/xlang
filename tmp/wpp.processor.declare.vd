@@ -1,0 +1,130 @@
+use "wpp.xlang.vd"
+use "process.xlang.vd"
+use "wpp.processor.def.vd"
+use "wpp.processor.util.vd"
+use "wpp.processor.const.vd"
+use "wpp.processor.type.vd"
+
+//?apply-statement-if;
+//?declare-variant;
+//?class-define;
+//?function-define;
+//?apply-define;
+processor wpp_complier(node r)
+[
+	/*
+		上下文context-class-declare 用于生成类的定义，获得类的全貌。
+		在生成类的方法时，分析了方法的参数，但不进入方法体，方法体的校验在上下文context-method-check中完成。
+	*/
+	context context-class-declare
+	[
+		//生成方法的声明
+		apply process-function-define(opType(spec typ) id  p nx  feture body) ->
+		{
+			if($trace-object)fn:print("\n\t function ", fn:symGetTermName(typ)," ",id,'(' );
+	
+			//生成方法的声明
+			if($htype)
+				fn:bind($hmethod,fn:symAddMethod($htype,id,spec,typ));
+			else
+				fn:bind($hmethod,fn:symAddMethod(fn:top($hnamespaces,0),id,spec,typ));
+				
+			//上下文语义
+			fn:context_push_word($hmethod, id);
+			fn:context_enter_scope();
+			
+			//分析参数
+			fn:apply(p);
+			if($trace-object)fn:print(")"); 
+			//分析本地属性
+			if(nx)
+			{
+				if($trace-object) fn:print(" native " );
+				fn:apply(nx);
+			}
+			//在上面已经说过，在这里并不分析和校验函数体
+			if($trace-object)fn:print(";");
+			
+			//缓存函数信息，用于后续处理。
+			if(body)fn:push($methods,fn:node(Method,$hmethod,p,body));
+			
+			fn:bind($hmethod,0);
+			fn:context_leave_scope();
+		}
+		
+		//处理方法的参数
+		apply proc-param-item(opType(spec typ) id init)->
+		{
+			//bug:应该在参数范围内检查 fixed
+			if(id)
+				if(fn:symGetMethodParamHandle($hmethod,id))
+					ChkError(id,id,"参数重复定义!");
+
+			//生成参数项
+			var $hparam;
+			if(id)
+				fn:bind($hparam,fn:symAddParam($hmethod,id,spec, typ));
+			else
+				fn:bind($hparam,fn:symAddParam($hmethod,fn:hash("__unnameparam"),spec, typ));
+			
+			if($trace-object)
+				fn:print(fn:symGetTermName(typ), "  ", id,  " ");
+			
+			if(init)
+			{
+				//初始值只能是整数常数。
+				context using context-method-check;
+				let $exp = fn:apply(init);
+				if(fn:Eq(fn:name($exp),fn:hash("OpLiteral")))
+				{
+					fn:symSetTermInitValue($hparam, fn:ChildNext($exp,2));
+				}else
+				{
+					ChkError(id,id,"初始值只能是常数表达式!");
+				}
+				context using context-class-declare;
+			}
+			
+			//压入查找上下文，用户判断参数名是否重复定义
+			if(id)fn:context_push_word($hparam,id);
+		}
+		
+		//校验类的字段
+		//bug: 在这里有一个限制，需要明确field的类型，但在某些情况下类型所对应的类可能还未开始分析。
+		apply proc_fieldorvariant(opType(spec typ) id init) ->
+		{
+			//bug: 查找范围应限定在类及父类.
+			if(fn:Gte(fn:context_find_token(id),0))
+				ChkError(id,id,"字段重复定义!");
+			
+			if($trace-object)fn:print("\n\t ", fn:symGetTermName(typ)," ", id,  ";");
+		
+			var $hfield;
+			//简单类型
+			if(typ)
+			{
+				if($htype)
+					fn:bind($hfield,fn:symAddField($htype,id,spec,typ));
+				else
+					fn:bind($hfield,fn:symAddField(fn:top($hnamespaces,0),id,spec,typ));
+			}
+			
+			if(init)
+			{
+				//初始值只能是整数常数。
+				context using context-method-check;
+				let $exp = fn:apply(init);
+				if(fn:Eq(fn:name($exp),fn:hash("OpLiteral")))
+				{
+					fn:symSetTermInitValue($hfield, fn:ChildNext($exp,2));
+				}else
+				{
+					ChkError(id,id,"初始值只能是常数表达式!");
+				}
+				context using context-class-declare;
+			}
+			//压入查找上下文，用于判断字段是否重复定义，也用于其它上下文中对类方法的校验.
+			fn:context_push_word($hfield, id);
+		}
+	]	
+]
