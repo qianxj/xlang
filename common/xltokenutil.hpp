@@ -1,9 +1,7 @@
 #ifndef XLTOKENUTIL_H
 #define XLTOKENUTIL_H
 
-namespace xl
-{
-
+namespace xl {
 namespace util { namespace token {
 
 enum TokenKind : char

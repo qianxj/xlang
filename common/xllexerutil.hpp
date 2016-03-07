@@ -5,8 +5,6 @@
 
 
 namespace xl {
-	
-
 namespace util { namespace lexer{
 	
 //declare

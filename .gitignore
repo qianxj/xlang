@@ -4,10 +4,12 @@
 *.o
 *.obj
 *.pdb
+*.ilk
 
 # Precompiled Headers
 *.gch
 *.pch
+
 
 
 # Compiled Dynamic libraries

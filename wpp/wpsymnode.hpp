@@ -2,6 +2,7 @@
 #define WPSYMNODE_H
 
 #include <string>
+#include "../common/util/xlvalue.hpp"
 
 namespace xl {namespace wp {
 
@@ -18,9 +19,12 @@ enum SymKind : char
 	kSymKeyword 		= 8,
 	kSymLiteral   		= 9,
 	kSymOperate		= 10,
-	kSymSynTerm		= 11,
-	kSymGuard			= 12,
-	kSymSatisfy  		= 13
+	kSymSyn			= 11,
+	kSymSynTerm		= 12,
+	kSymGuard			= 13,
+	kSymSatisfy  		= 14,
+	kSymStmt			= 15,
+	kLiteral				= 16
 };
 
 template<class TKind>	
@@ -29,89 +33,113 @@ struct SymNode
 	TKind kind;
 };
 
-template<class TKind class Ty>
-struct AxisNode : public SymNode<TKind>
+struct SymList : public SymNode<SymKind>
 {
-	AxisNode * parent;
-	AxisNode * child;
-	AxisNode * next;
-	T data;
-	
-	AxisNode() :parent(0),child(0),next(0),data(0){}
-	AxisNode(T val) : parent(0),child(0),next(0),data(val){}
-	
-	 AxisNode & addChild(AxisNode * node)
-	{
-		AxisNode* term = this->child;
-		if(!term)
-		{
-			this->child = node;
-			node->parent = this;
-			return *this;
-		}else
-		{
-			return term->addSibling(node);
-		}
-	}
-	
-	 AxisNode & addSibling(AxisNode * node)
-	{
-		AxisNode* term = this;
-		while(term->next) term = term->next;
-		term->next = node;
-		node->parent = term->parent;
-		return *this;
-	}
-	
-	std::wstring dumpNode(AxisNode * node, std::wstring space)
-	{
-		std::wstring str;
-		str = space + L"***";
-		AxisNode * term = node->child;
-		while(term)
-		{
-			str += dumpNode(term,space+L"   ");
-			term = term->next;
-		}
-		return str;
-	}
-	
-	std::wstring dump(std::wstring space)
-	{
-		std::wstring str;
-		AxisNode * term = this;
-		while(term)
-		{
-			str += dumpNode(term,space);
-			term = term->next;
-		}
-		return str;
-	}
-	
-	 AxisNode& operator +( AxisNode &rhs)
-	{
-		return addSibling(&rhs);
-	}
-	
-	 AxisNode& operator +=(AxisNode &rhs)
-	{
-		return addSibling(&rhs);
-	}
-	
-	 AxisNode& operator *(AxisNode &rhs)
-	{
-		return addChild(&rhs);
-	}
-	
-	 AxisNode& operator *=(AxisNode &rhs)
-	{
-		return addChild(&rhs);
-	}
+	SymList* next;
+	SymNode<SymKind>* term;
 };
 
-struct SymOneof
+struct SymOneof : public SymNode<SymKind>
 {
+	SymNode<SymKind>* terms;
 };
+
+struct SymUntil : public SymNode<SymKind>
+{
+	SymNode<SymKind>* cond;
+	SymNode<SymKind>* term;
+};
+
+struct SymOption : public SymNode<SymKind>
+{
+	SymNode<SymKind>* term;
+};
+
+struct SymDeclVar : public SymNode<SymKind>
+{
+	SymNode<SymKind>* type;
+	int ident;
+	SymNode<SymKind>* init;
+};
+
+struct SymAction : public SymNode<SymKind>
+{
+	int ident;
+	SymNode<SymKind> param;
+};
+
+struct SymSym : public SymNode<SymKind>
+{
+	int name;
+	SymNode<SymKind> * node;
+};
+
+struct SymSymTerm : public SymNode<SymKind>
+{
+	int name;
+};
+
+struct SymStmt : public SymNode<SymKind>
+{
+	SymNode<SymKind> * node;
+};
+
+struct SymLiteral : public SymNode<SymKind>
+{
+	util::misc::TValue* val;
+	inline std::wstring toString() { return !val ? L"Literal()" : L"Literal(" + val->toStringEx() +L")" ;}
+	inline ~SymLiteral() { if(val) delete val; }
+};
+
+struct SymKeyword : public SymNode<SymKind>
+{
+	int name;
+};
+
+template<class T> T * allocNode(){ return new T;}
+
+//literal
+template<class T>
+SymLiteral*  makeLiteralEx(T &val)
+{
+	SymLiteral * term = allocNode<SymLiteral>();
+	term->kind = kLiteral;
+	term->val = new util::misc::TValue(val);
+	return term;
+}
+inline SymLiteral*  makeLiteral(long long int val)						{ return makeLiteralEx(val); } 
+inline SymLiteral*  makeLiteral(unsigned long long int val) 		{ return makeLiteralEx(val); } 
+inline SymLiteral*  makeLiteral(int val)									{ return makeLiteralEx(val); } 
+inline SymLiteral*  makeLiteral(unsigned int val)						{ return makeLiteralEx(val); } 
+inline SymLiteral*  makeLiteral(short val)								{ return makeLiteralEx(val); } 
+inline SymLiteral*  makeLiteral(unsigned short val)					{ return makeLiteralEx(val); } 
+inline SymLiteral*  makeLiteral(char val) 								{ return makeLiteralEx(val); } 
+inline SymLiteral*  makeLiteral(unsigned char val)					{ return makeLiteralEx(val); } 
+inline SymLiteral*  makeLiteral(wchar_t val)							{ return makeLiteralEx(val); } 
+inline SymLiteral*  makeLiteral(double val)								{ return makeLiteralEx(val); } 
+inline SymLiteral*  makeLiteral(float val)									{ return makeLiteralEx(val); } 
+inline SymLiteral*  makeLiteral(wchar_t* val)							{ return makeLiteralEx(val); } 
+inline SymLiteral*  makeLiteral(char* val)								{ return makeLiteralEx(val); } 
+inline SymLiteral*  makeLiteral(bool val)									{ return makeLiteralEx(val); } 
+inline SymLiteral*  makeLiteral(void* val)								{ return makeLiteralEx(val); } 
+
+//list
+inline SymList* makeSymList(SymNode<SymKind> * data)
+{
+	SymList * term = allocNode<SymList>();
+	term->kind = kSymList;
+	term->term = data;
+	term->next = 0;
+	return term;
+}
+//list expand term
+inline SymNode<SymKind>* makeSymList(SymList * termList, SymNode<SymKind> * data)
+{
+	SymList * term = termList;
+	while(term->next) term = term->next;
+	term->next = makeSymList(data);
+	return termList;
+}
 
 }} //namespace xl::wp
 
