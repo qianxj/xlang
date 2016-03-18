@@ -31,7 +31,8 @@ struct TValue
 		
 		WChar		=16,
 		Char			=18,
-		UChar		=19
+		UChar		=19,
+		MULChar		=20
 	} vt;
 
 	union 
@@ -70,6 +71,7 @@ struct TValue
 	inline TValue(unsigned char val) : 			val_char(val), 	vt(UChar){}
 	inline TValue(bool val) :							val_bool(val), 		vt(Bool){}
 	inline TValue(void * val) :						val_ptr(val), 		vt(Ptr){}
+	inline TValue(wchar_t val[], int size) :		val_wstr(val), 	vt(MULChar){}
 	
 	std::wstring toString();
 	//char or string with quote

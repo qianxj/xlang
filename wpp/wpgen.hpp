@@ -11,7 +11,7 @@ void * genTerm(int ident);
 
 void * genSynTerm(SymDeclVar* 	symVar);
 void * genSynTerm(SymOneof* 	symOneof);
-void * genSynTerm(SymLoop* 		symLoop);
+void * genSynTerm(SymRepeat* 	symRepeat);
 void * genSynTerm(SymAction* 	symAction);
 void * genSynTerm(SymAssign* 	symAssign);
 void * genSynTerm(SymLiteral* 	symLiteral);

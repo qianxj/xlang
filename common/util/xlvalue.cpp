@@ -70,6 +70,9 @@ std::wstring TValue::toString()
 		case Ptr:
 			_snwprintf(buf,255,L"0x%p",val_ptr);
 			return buf;
+		case MULChar: //
+			_snwprintf(buf,128,L"%s",val_wstr);
+			return buf;
 		case WChar:
 			_snwprintf(buf,128,L"%c",val_i16);
 			return buf;

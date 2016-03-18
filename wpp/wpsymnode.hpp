@@ -2,7 +2,9 @@
 #define WPSYMNODE_H
 
 #include <string>
+#include "../common/xltoken.hpp"
 #include "../common/util/xlvalue.hpp"
+#include "../common/util/stringpool.hpp"
 
 namespace xl {namespace wp {
 
@@ -24,14 +26,33 @@ enum SymKind : char
 	kSymGuard	= 13,
 	kSymSatisfy 	= 14,
 	kSymStmt	= 15,
-	kSymLiteral	= 16,
-	kSymLoop	= 17
+	kSymRepeat	= 17,
+	kRuler =18,
+	kGrammer = 19,
+	kLang = 20
 };
 
 template<class TKind>	
 struct SymNode
 {
 	TKind kind;
+};
+
+struct SymRuler : public SymNode<SymKind>
+{
+	HSymbol  ident;
+	SymNode<SymKind>* rhs;
+};
+
+struct SymGrammer : public SymNode<SymKind>
+{
+	SymNode<SymKind>* primaryRuler;
+	SymNode<SymKind>* rulers;
+};	
+
+struct SymLang : public SymNode<SymKind>
+{
+	SymGrammer* grammer;
 };
 
 struct SymList : public SymNode<SymKind>
@@ -45,7 +66,7 @@ struct SymOneof : public SymNode<SymKind>
 	SymNode<SymKind>* terms;
 };
 
-struct SymLoop : public SymNode<SymKind>
+struct SymRepeat : public SymNode<SymKind>
 {
 	SymNode<SymKind>* cond;
 	SymNode<SymKind>* term;
@@ -58,31 +79,27 @@ struct SymOption : public SymNode<SymKind>
 
 struct SymDeclVar : public SymNode<SymKind>
 {
-	SymNode<SymKind>* type;
-	int ident;
-	SymNode<SymKind>* init;
+	//SymNode<SymKind>* type;
+	//SymNode<SymKind>* init;
+	HSymbol ident;
+	bool islist;
 };
 
 struct SymAction : public SymNode<SymKind>
 {
-	int ident;
+	HSymbol ident;
 	SymNode<SymKind> param;
 };
 
-struct SymSym : public SymNode<SymKind>
+struct SymSymRuler : public SymNode<SymKind>
 {
-	int name;
+	wchar_t* name;
 	SymNode<SymKind> * node;
 };
 
 struct SymSymTerm : public SymNode<SymKind>
 {
-	int name;
-};
-
-struct SymStmt : public SymNode<SymKind>
-{
-	SymNode<SymKind> * node;
+	wchar_t* name;
 };
 
 struct SymLiteral : public SymNode<SymKind>
@@ -94,7 +111,7 @@ struct SymLiteral : public SymNode<SymKind>
 
 struct SymKeyword : public SymNode<SymKind>
 {
-	int name;
+	wchar_t* name;
 };
 
 template<class T> T * allocNode(){ return new T;}
@@ -108,6 +125,7 @@ SymLiteral*  makeLiteralEx(T &val)
 	term->val = new util::misc::TValue(val);
 	return term;
 }
+
 inline SymLiteral*  makeLiteral(long long int val)		{ return makeLiteralEx(val); } 
 inline SymLiteral*  makeLiteral(unsigned long long int val) 	{ return makeLiteralEx(val); } 
 inline SymLiteral*  makeLiteral(int val)			{ return makeLiteralEx(val); } 
@@ -133,6 +151,7 @@ inline SymList* makeSymList(SymNode<SymKind> * data)
 	term->next = 0;
 	return term;
 }
+
 //list expand term
 inline SymNode<SymKind>* makeSymList(SymList * termList, SymNode<SymKind> * data)
 {
@@ -141,6 +160,11 @@ inline SymNode<SymKind>* makeSymList(SymList * termList, SymNode<SymKind> * data
 	term->next = makeSymList(data);
 	return termList;
 }
+
+//unify match
+bool bnf_unify(Token<wchar_t>& tk, SymKeyword* symKeyword);
+bool bnf_unify(Token<wchar_t>& tk, SymLiteral* symLiteral);
+
 
 }} //namespace xl::wp
 
