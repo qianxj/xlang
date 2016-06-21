@@ -2,8 +2,11 @@
 #define WPCODE_H
 
 #include "wpsymnode.hpp"
+#include "../common/util/xlvalue.hpp"
+#include "stringpool.hpp"
 
-namespace xl {namespace wp {namespace coder}
+namespace xl {namespace wp { namespace coder {
+	
 	enum CodeKind
 	{
 		kNode = 1,
@@ -72,7 +75,7 @@ namespace xl {namespace wp {namespace coder}
 	{
 		enum MatchKind
 		{
-			mkIdent
+			mkIdentifier,
 			mkKeyword,
 			mkOperate,
 			mkLiteral,
@@ -80,12 +83,14 @@ namespace xl {namespace wp {namespace coder}
 			mkIntLiteral,
 			mkCharLiteral,
 			mkBoolLiteral,
+			mkDoubleLiteral,
+			mkSymbolTerm,
 			mkValue
 		} matckKind;
 		union
 		{
-			wchar_t* ident;
-			wchar_t* kword;
+			HSymbol kword;
+			HSymbol ident
 			Operate op;
 			TValue val;
 		};
@@ -111,7 +116,7 @@ namespace xl {namespace wp {namespace coder}
 	};
 
 	struct PExpr : public PNode {
-		PNode * node;
+		PNode* node;
 	};
 
 	struct PBranch : public PNode {
@@ -211,7 +216,7 @@ namespace xl {namespace wp {namespace coder}
 
 	struct PTerm : public PNode
 	{
-		const wchar_t * name;
+		HSymbol name;
 	};
 
 	struct PGuard : public PNode
@@ -245,12 +250,24 @@ namespace xl {namespace wp {namespace coder}
 	PBranchItem* BranchItem(PExpr * match , PNode * stmt);
 	PBinary* Binary(tokenKind_t opKind, PNode * rhs, PNode * lhs);
 	PUnary* Unary(tokenKind_t opKind, PNode * node);
+	PTerm* Term(HSymbol name);
 	
-	PMatch * Match(PNode * term, PExpr * temp);
+	PMatch * MatchKeyword(HSymbol kword);
+	PMatch * MatchLiteral(TValue &val);
+	PMatch * MatchOperate(Operate op);
+	PMatch * MatchIdentifier();
+	PMatch * MatchLiteral();
+	PMatch * MatchIntergerLiteral();
+	PMatch * MatchBoolLiteral();
+	PMatch * MatchCharLiteral();
+	PMatch * MatchDoubleLiteral();
+	PMatch * MatchStringLiteral();
+	PMatch * MatchSymbolTerm();
 
-	POneof * OneOf(PList * term);
-	POption * Option(PNode * term);
-	PGuard * Guard();
+
+	//POneof * OneOf(PList * term);
+	//POption * Option(PNode * term);
+	//PGuard * Guard();
 
 	PType * ContextType(const wchar_t* name);
 	PClass * ContextClass(const wchar_t* name);
@@ -268,13 +285,13 @@ namespace xl {namespace wp {namespace coder}
 	PLiteral * Literal(bool val);
 	PLiteral * Literal(wchar_t val);
 	PLiteral * Literal(char val);
-	PExpr * Ref(PNode* expr);
+	PExpr *  Ref(PNode* expr);
 
 	PTokenNode * TokenNode(Token &tk);
 };
 
 
-}} //namespace xl::wp::coder
+}}} //namespace xl::wp::coder
 
 
 #endif //WPCODE_H

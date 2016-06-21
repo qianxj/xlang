@@ -12,8 +12,8 @@ StringPool::~StringPool() {
 	delete dataPool;
 }
 
-HStringEntry StringPool::Insert(const wchar_t* str) { return Insert(str,wcslen(str)); } 
-HStringEntry StringPool::Insert(const wchar_t* str, int size) {
+HStringEntry StringPool::Ensure(const wchar_t* str) { return Ensure(str,wcslen(str)); } 
+HStringEntry StringPool::Ensure(const wchar_t* str, int size) {
 	if(!str)	return 0;
 
 	int h = HashCode(str,size);

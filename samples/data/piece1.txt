@@ -1,0 +1,51 @@
+piece max(x,y) [ x1+y1; ]
+
+piece prop ( spec $spec ty $ty id $id ';')
+[
+	ty _#$id;
+	$ty get_#$id() {return _#id;}
+	void put_#$id($ty val){_#$id = val;}
+]
+
+piece OPR syntax one of ("RR","RM","MR","RI","MI") $t '('  integer-literal  $x ',' integer-literal  $y ')';
+piece OPR(RR($x,$y))  	[  const Register<B##$x> &lhs , const Register<B##$x> &rhs ]
+piece OPR(RM($x,$y))  	[  const Register<B##$x> &lhs , const Register<B##$x> &rhs ]
+piece OPR(MR($x,$y))  	[  const Register<B##$x> &lhs , const Register<B##$x> &rhs ]
+piece OPR(RI($x,$y))  		[  const Register<B##$x> &lhs , const Register<B##$x> &rhs ]
+piece OPR(MI($x,$y))  	[  const Register<B##$x> &lhs , const Register<B##$x> &rhs ]
+
+piece OPR($t,$x,$y)
+[
+	piece:switch($t)
+	{
+		piece:case RR:
+			[ const Register<B##$x> &lhs , const Register<B##$x> &rhs ]
+			piece:break;
+		piece:case RM:
+		piece:case MR:
+		piece:case RI:
+		piece:case MI:
+		piece:case default:
+			piece:error "error";
+			piece:break;
+	}
+]
+
+
+piece WP("RR" '(' 16 ...) 
+piece ENCODER32("ADD" integer-literal $ins OPR $t)
+[
+	static unsigned char *  $ins(unsigned char * pc, OPR $t) 
+	{	
+		WP(t) 
+		*pc++ = cd | (S(t)<<1)|W(t); 
+		*pc++ = MODRM(0x3,rx,lhs.value);	
+		IMM(t,rhs.value) 
+		return pc;	
+	}
+]
+
+
+ENCODER32 ADD 0x80 RM(32,32);
+
+max(3*8,5);

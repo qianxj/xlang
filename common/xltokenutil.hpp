@@ -19,11 +19,12 @@ enum TokenKind : char
 	tkBool = 10,
 	tkOperate = 11,
 	tkHex = 12,
-	
+	tkLiteral = 13,
 	tkComment = 32,
 	tkBlockComment = 33,
 	tkBlank = 34,
-	tkLn	 = 35
+	tkLn	 = 35,
+	tkAny = 36
 };
 	
 enum Operate : char

@@ -1,0 +1,89 @@
+	syntax trans_unit:  list("unit" identifier '[' list (one of(declare_namespace,declare_class,method_field_declare)) ']');
+	syntax declare_namespace:  var $id "namespace" option (identifier $id )  one of(
+				"for" "ole" literal $r ';' !addOleNamespace($id,$r), 
+				!enterNamespace($id) '{' option list (one of (declare_namespace, declare_class,method_field_declare )) '}' !leaveNamespace()
+				);
+	syntax declare_class: var $base,$class_key one of ("class"  $class_key, "struct" $class_key, "enum" $class_key, "interface" $class_key,"context" $class_key )   identifier $id  one of( ';'  !forwardClass($class_key, $id,$base) $result  , option ( ':'  base_clause $base ) !makeClass($class_key, $id,$base) $result  option native_spec option ( '{' option  class_member '}' )  !finishedClass() ';');
+	syntax base_clause:  var list $result,$access one of ("public"  $access  , "private" $access ) type_id $type  !makeClassBase($access,$type) $result option(','  base_clause $result);
+	syntax class_member : list ( one of("public" ':' , "protected" ':' ,"private" ':' , apply_declare, method_field_declare) );
+	
+	//syntax methoddeclare:   type_id $type identifier $id  '(' option list(type_id $params  identifier $args,',') ')'  one of(';', '{' function_body '}');
+	
+	syntax native_spec: option "native"    native_spec_list;
+	syntax native_spec_list: list( native_spec_item );
+	syntax native_spec_item: one of( "from" literal $from !SetNativeFrom($from), "alias"  literal  $alias !SetNativeAlias($alias));
+
+	syntax method_field_declare: var $paramlist,$init option "function"  type_id $type identifier $id 
+					one of (	'(' option (paramlist  $paramlist) ')' option "override" !makeFunction($id,$type, $paramlist) native_spec one of(';', '{'  function_body $body '}') !finishedMethod() , 
+					- option ('=' expression $init)  !makeTypeField($type,$id,$init) ';' );
+
+	syntax type_spec: var list $result list (one of("typedef" $result,"manage" $result,"unsigned" $result,"static" $result,"virtual" $result,"stdcall" $result,"const" $result,"byref" $result,"override" $result,"inline" $result,"ref" $result,"native" $result));
+	syntax type_primary:	one of("int" $result,"double" $result,"float" $result,"string" $result,"bool" $result,"int64" $result,"short" $result,"long" $result,"oleobject" $result,"void" $result,"uint" $result,"ushort" $result,"char" $result);
+
+	syntax paramlist: var list $result list( var $type_id , $arg, $init type_id $type_id  option (identifier $arg ) option ('=' expression $init) !makeParam($arg,$type_id,$init) $result,',');
+	
+	syntax type_param:  var list $result '<'   list (type_id $result  , ',')  '>';
+	syntax type_rank: 	  var list $result list( var $r '['  option (expression  $r) !assign($result,$r) ']');
+	syntax type_id: var $id, $spec, $param,$rank,$term
+								option (type_spec  $spec )
+								one of ( 
+									type_primary $id   /*option (type_param $param)*/ !makeQualifiedTerm($term, $id,$param) $term, 
+									- list (identifier $id  /*option (type_param $param)*/ !makeQualifiedTerm($term, $id,$param) $term, '::' )
+								) option (type_rank $rank) 
+								!makeQualifiedId($spec,$term,$rank) $result;
+	
+	syntax function_body: var list $stmt list (stmt $stmt) !makeCompStmt($stmt) $result !setFunctionBody($result) $result /*!dumpNode($result) $result  !checkNode($result) $result !genStmtEx($result) $r !genCode($r)*/;
+	//syntax declare_apply: "apply" 
+	/*
+	id-expression:
+				unqualified-id
+				qualified-id
+				
+	unqualified-id:
+				identifier
+				operator-function-id
+				conversion-function-id
+				~class-name
+				template-id
+				
+	qualified-id:
+				::!opt nested-name-specifier templateopt unqualified-id
+				:: identifier
+				:: operator-function-id
+				:: template-id
+				
+	nested-name-specifier:
+				class-or-namespace-name :: nested-name-specifier!opt
+				class-or-namespace-name :: template nested-name-specifier
+	*/
+	syntax id_expression: type_id $result;
+	syntax primary_expession: var $r one of ("this"  !makeThis() $result , "super"  !makeSuper() $result, id_expression  $result , literal $r !makeLiteral($r) $result, '(' expression $result ')'  );
+	syntax postfix_expression: var list $postfix primary_expession  $result option list (one of('.'  identifier $field !makeField($result,$field) $result,  var list $args '(' list(expression $args, ',') ')' !makeCall($result,$args) $result,'[' expression $rank ']' !makeElement($result,$rank) $result, '++' !makeInc($result) $result, '--' !makeDec($result) $result));
+	syntax unary_expression: var  $unary option one of("sizeof" $unary, "new" $unary, "delete" $unary,'~' $unary, '!' $unary, '++' $unary,'--' $unary, '+'  $unary , '-' $unary) postfix_expression $postfix_expression !makeUnryExpr( $unary,$postfix_expression) $result;
+	syntax cast_expression: one of("cast" '('  cast_expression $result "as" type_id  $to !makeCast($result,$to) $result ')', "trust" '(' cast_expression $result "as" type_id  $to1 !makeCast($result,$to1) $result ')', unary_expression $result) ;
+	
+	syntax binary_op: one of( '+' $result,'-' $result, '*' $result, '/' $result, '%' $result,'**' $result, '&' $result,'|' $result,'^' $result, '<<' $result,'>>' $result,'&&' $result,'||' $result,'=' $result,'<' $result,'>' $result,'>=' $result,'<=' $result, '==' $result,'!=' $result,
+							'+=' $result,'-=' $result,'*=' $result,'/=' $result,'%=' $result,'>>=' $result,'<<=' $result, '&=' $result,'|=' $result,'^=' $result);
+	syntax binary_expression: var $op cast_expression $result option list ( binary_op $op  cast_expression $rhs  !makeBinaryExpr($op, $result, $rhs) $result);
+	syntax expression: binary_expression $result !makeExpression($result);
+	
+	syntax expression_or_variant_declare_stmt: var list $result expression $expr one of(
+					';' !makeExprStmt($expr) $result,
+					list( var $init identifier $id option ('=' expression $init) !makeVar($id,$expr,$init) $result,',') ';'
+				);
+	syntax expression_stmt : expression  $expr !makeExprStmt($expr) $result ';' ;
+	syntax comp_stmt:  var list $body '{' list (stmt $body)  '}' !makeCompStmt($body) $result ;
+	syntax if_stmt: var $fbody "if" '(' cond $cond ')'  stmt  $tbody option ("else" stmt $fbody) !makeIf($cond,$tbody,$fbody) $result;
+	syntax cond: expression $result;
+	syntax return_stmt: "return" option (expression $result)  !makeReturn($result) $result ';'  ;
+	syntax while_stmt: "while" '(' cond  $cond ')'  stmt $stmt !makeWhile($cond,$stmt) $result  ;
+	syntax until_stmt: "do" comp_stmt $stmt "while" '(' cond  $cond')' !makeUntil($cond,$stmt) $result;
+	syntax for_stmt: "for" '(' expression_or_variant_declare_stmt $init cond $cond ';' expression $inc ')'  stmt $stmt !makeFor($init,$cond,$inc,$stmt) $result ;
+	syntax break_stmt: "break" ';' !makeBreak() $result;
+	syntax empty_stmt: ';';
+	syntax continue_stmt: "continue" ';' !makeContinue() $result ;
+	syntax stmt: one of ( empty_stmt ,if_stmt $result, return_stmt $result, continue_stmt $result, break_stmt $result, for_stmt $result, while_stmt $result,until_stmt $result,comp_stmt $result,expression_or_variant_declare_stmt $result);
+
+	syntax apply_declare: var $type "apply" identifier $id '(' match_param_list $params ')' option (':' type_id $type) !makeApply($id,$type, $params) $result one of (';', '{' option (function_body $body ) '}') !finishedMethod();
+	syntax match_param_list: var list $result list (match_param $result, ',');
+	syntax match_param: var $id,$type_id,$child, $init one of (literal $r !makeLiteral($r) $init, '-' $init , '...' $init, ':' type_id $type_id option ('('  match_param_list $child  ')' ),  identifier $id option ('('   ')' ) option ( ':' type_id $type_id option ('('  match_param_list $child  ')' ))) !makeParam($id,$type_id,$init,$child) $result;

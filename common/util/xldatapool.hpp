@@ -15,8 +15,8 @@ public:
 	void* 		Alloc( int size) ;
 	int* 			Append(int v) ;
 	double* 	Append(double v);
-	wchar_t*  Append(wchar_t* str, int len) ;
-	wchar_t*  Append(wchar_t* str);
+	wchar_t*  Append(const wchar_t* str, int len) ;
+	wchar_t*  Append(const wchar_t* str);
 private:
 	struct PtrDataSize {
 		void * ptr;

@@ -37,11 +37,11 @@ double* DataPool::Append(double v) {
 	return (double*)Append(&v,sizeof(v));
 }
 
-wchar_t* DataPool::Append(wchar_t* str, int len) {
+wchar_t* DataPool::Append(const wchar_t* str, int len) {
 	Append(len);
 	return (wchar_t*)Append((const void *)str, (len + 1)* sizeof(str[0]));
 }
-wchar_t*  DataPool::Append(wchar_t* str ) {
+wchar_t*  DataPool::Append(const wchar_t* str ) {
 	return Append(str,wcslen(str));
 }
 

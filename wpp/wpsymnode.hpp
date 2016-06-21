@@ -4,7 +4,7 @@
 #include <string>
 #include "../common/xltoken.hpp"
 #include "../common/util/xlvalue.hpp"
-#include "../common/util/stringpool.hpp"
+#include "../common/util/xlstringpool.hpp"
 
 namespace xl {namespace wp {
 
@@ -29,7 +29,8 @@ enum SymKind : char
 	kSymRepeat	= 17,
 	kRuler =18,
 	kGrammer = 19,
-	kLang = 20
+	kLang = 20,
+	kError = 21
 };
 
 template<class TKind>	
@@ -52,6 +53,7 @@ struct SymGrammer : public SymNode<SymKind>
 
 struct SymLang : public SymNode<SymKind>
 {
+	StringPool * stringPool;
 	SymGrammer* grammer;
 };
 
@@ -69,7 +71,7 @@ struct SymOneof : public SymNode<SymKind>
 struct SymRepeat : public SymNode<SymKind>
 {
 	SymNode<SymKind>* cond;
-	SymNode<SymKind>* term;
+	SymNode<SymKind>* body;
 };
 
 struct SymOption : public SymNode<SymKind>
@@ -88,18 +90,24 @@ struct SymDeclVar : public SymNode<SymKind>
 struct SymAction : public SymNode<SymKind>
 {
 	HSymbol ident;
-	SymNode<SymKind> param;
+	SymNode<SymKind>* params;
+};
+
+struct SymAssign : public SymNode<SymKind>
+{
+	HSymbol ident;	
+	SymNode<SymKind> * term;			
 };
 
 struct SymSymRuler : public SymNode<SymKind>
 {
-	wchar_t* name;
+	HSymbol name;
 	SymNode<SymKind> * node;
 };
 
 struct SymSymTerm : public SymNode<SymKind>
 {
-	wchar_t* name;
+	HSymbol name;
 };
 
 struct SymLiteral : public SymNode<SymKind>
@@ -111,7 +119,31 @@ struct SymLiteral : public SymNode<SymKind>
 
 struct SymKeyword : public SymNode<SymKind>
 {
-	wchar_t* name;
+	HSymbol name;
+};
+
+struct SymOperate : public SymNode<SymKind>
+{
+	Operate op;
+};
+
+struct SymError : public SymNode<SymKind>
+{
+	enum ErrorKind 
+	{
+		errUnknown 		= 0,
+		errMisToken 	= 1,
+		errUnNessary 	= 2
+	} errorKind;
+
+	enum ErrorStep
+	{
+		ReWind = 1,
+		Skip = 2,
+		SkipLine = 3,
+		SkipLineBreak = 4,
+		SkipUntil = 5
+	};
 };
 
 template<class T> T * allocNode(){ return new T;}
@@ -137,8 +169,8 @@ inline SymLiteral*  makeLiteral(unsigned char val)		{ return makeLiteralEx(val);
 inline SymLiteral*  makeLiteral(wchar_t val)			{ return makeLiteralEx(val); } 
 inline SymLiteral*  makeLiteral(double val)			{ return makeLiteralEx(val); } 
 inline SymLiteral*  makeLiteral(float val)			{ return makeLiteralEx(val); } 
-inline SymLiteral*  makeLiteral(wchar_t* val)			{ return makeLiteralEx(val); } 
-inline SymLiteral*  makeLiteral(char* val)			{ return makeLiteralEx(val); } 
+inline SymLiteral*  makeLiteral(const wchar_t* val)	{ return makeLiteralEx(val); } 
+inline SymLiteral*  makeLiteral(const char* val)	{ return makeLiteralEx(val); } 
 inline SymLiteral*  makeLiteral(bool val)			{ return makeLiteralEx(val); } 
 inline SymLiteral*  makeLiteral(void* val)			{ return makeLiteralEx(val); } 
 

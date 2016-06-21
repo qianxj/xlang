@@ -122,9 +122,6 @@ namespace XM
 			FImm(): XTerm<Bits>(Term::kFImm){}
 	};
 
-	class Machine
-	{
-	};
 
 	namespace X86
 	{
@@ -778,6 +775,8 @@ namespace XM
 		ENCODE_SMI(op,0x80,rx,MI(32,32))	\
 		ENCODE_SMI(op,0x80,rx,MI(32,16))	\
 		ENCODE_SMI(op,0x80,rx,MI(32,8))	\
+		ENCODE_SMI(op,0x80,rx,MI(16,16))	\
+		ENCODE_SMI(op,0x80,rx,MI(16,8))	\
 			\
 		ENCODE_I(op,cd|0x4,I(32))	\
 		ENCODE_I(op,cd|0x4,I(16))	\

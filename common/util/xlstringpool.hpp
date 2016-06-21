@@ -7,10 +7,11 @@
 namespace xl {
 	
 typedef struct StringEntry{
-	wchar_t* str;
+	const wchar_t* str;
 	StringEntry* next;
 } * HStringEntry;
 
+typedef HStringEntry HSymbol;
 
 class StringPool
 {
@@ -18,8 +19,8 @@ public:
 	StringPool() ;
 	~StringPool();
 public:
-	HStringEntry Insert(const wchar_t* str) ;
-	HStringEntry Insert(const wchar_t* str, int size);
+	HStringEntry Ensure(const wchar_t* str) ;
+	HStringEntry Ensure(const wchar_t* str, int size);
 
 public:
 	const wchar_t* GetString(HStringEntry  h);

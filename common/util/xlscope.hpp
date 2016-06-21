@@ -9,8 +9,7 @@
 
 namespace xl  {
 	
-typedef HStringEntry HSymbol;
-	
+
 class Scope
 {
 public:

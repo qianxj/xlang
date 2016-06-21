@@ -15,17 +15,11 @@ struct SrcPos
 	int col;
 };
 
-//typedef char CharType;
 template<class CharType >
-struct Token
+struct FToken
 {
 	//token kind
 	TokenKind kind;
-	
-	//prev source index
-	int prevcc;
-	//token start index
-	int startcc;
 	
 	//token len
 	int tokenLen; 
@@ -41,7 +35,17 @@ struct Token
 		Operate		opVal;
 	};
 	
-	const CharType* 	strVal;
+	const CharType* 	strVal;	
+};
+
+//typedef char CharType;
+template<class CharType >
+struct Token : public FToken<CharType>
+{
+	//prev source index
+	int prevcc;
+	//token start index
+	int startcc;
 	
 	//method
 	bool IsOperate(Operate op)		{	return isOperate(kind) &&  opVal == op;	}
@@ -66,7 +70,7 @@ struct Token
 		if(!IsIdent()) return false;
 		int pos = 0;
 		while(Ident[pos] == strVal[pos] && pos<=strLen)pos++; 
-		return !Ident[pos] && pos == strLen + 1;
+		return !Ident[pos] && pos == strLen ;
 	}
 	
 	bool IsString(CharType* str)
@@ -74,7 +78,7 @@ struct Token
 		if(!IsString()) return false;
 		int pos = 0;
 		while(str[pos] == strVal[pos] && pos<=strLen)pos++; 
-		return !str[pos] && pos == strLen + 1;
+		return !str[pos] && pos == strLen ;
 	}
 	
 	std::wstring  toString()
